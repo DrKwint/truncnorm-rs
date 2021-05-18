@@ -1,0 +1,19 @@
+[package]
+name = "truncnorm"
+version = "0.1.0"
+authors = ["Eleanor Quint <eleanorquint1@gmail.com>"]
+edition = "2018"
+
+[dependencies]
+ndarray = {version = "*", features = ["rayon"] }
+ndarray-stats = "*"
+ndarray-rand = "*"
+ndarray-linalg = "*"
+rand = "*"
+levenberg-marquardt = "0.8.0"
+nalgebra = "0.25.3" # version required by lm package
+statrs = "*"
+
+[build-dependencies]
+bindgen = "0.53.1"
+cc = "*"
