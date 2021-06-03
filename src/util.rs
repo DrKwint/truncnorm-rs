@@ -24,6 +24,7 @@ pub fn rejection_sample(
 ) -> (Array1<f64>, Array1<bool>) {
     let mut x: Array1<f64> = proposal_sampler();
     let mut accepted: Array1<bool> = Array1::from_elem(x.len(), false);
+    accept_condition(&x, &mut accepted);
     let mut i = 0;
     while !accepted.fold(true, |a, b| a && *b) && i < MAX_ITERS {
         i += 1;

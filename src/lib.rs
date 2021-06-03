@@ -18,6 +18,8 @@ use ndarray::Axis;
 use ndarray::Slice;
 use ndarray::Zip;
 use ndarray_rand::rand_distr::num_traits::FloatConst;
+use ndarray_rand::rand_distr::Normal;
+use ndarray_rand::rand_distr::StandardNormal;
 use ndarray_rand::RandomExt;
 use ndarray_stats::QuantileExt;
 use rand::distributions::Uniform;
@@ -65,36 +67,17 @@ fn ntail(l: Array1<f64>, u: Array1<f64>) -> (Array1<f64>, Array1<bool>) {
 }
 
 fn trnd(l: &Array1<f64>, u: &Array1<f64>) -> Array1<f64> {
-    // uses acceptance rejection to simulate from truncated normal
-    let mut x = Array1::random(l.len(), Uniform::new(0., 1.));
     // use rejection sample pattern
-    let rej_sample = |x, sample| {
-        let output_array =
-            Zip::from(&x)
-                .and(&sample)
-                .and(l)
-                .and(u)
-                .par_map_collect(
-                    |&x, &sample, &l, &u| {
-                        if x < l || x > u {
-                            sample
-                        } else {
-                            x
-                        }
-                    },
-                );
-        let rej_flag = !Zip::from(&x)
-            .and(&output_array)
-            .par_map_collect(|&old, &new| old == new)
-            .fold(true, |a, &b| a && b);
-        (output_array, rej_flag)
+    let accept_condition = |x: &Array1<f64>, accepted: &mut Array1<bool>| {
+        par_azip!((x in x, l in l, u in u, acc in accepted) {
+                if x > l && x < u {
+                    *acc = true;
+                }
+        })
     };
-    let mut rej_flag = true;
-    while rej_flag {
-        let sample = Array1::random(l.len(), Uniform::new(0., 1.));
-        (x, rej_flag) = rej_sample(x, sample);
-    }
-    x
+    let proposal_sampler = || Array1::random(l.len(), StandardNormal);
+    let (output_array, _accepted) = util::rejection_sample(&accept_condition, &proposal_sampler);
+    output_array
 }
 
 fn tn(l: &Array1<f64>, u: &Array1<f64>) -> Array1<f64> {
@@ -116,12 +99,15 @@ fn tn(l: &Array1<f64>, u: &Array1<f64>) -> Array1<f64> {
     par_azip!((gap in &gap, coeff in &mut coeff, tl in &mut tl, tu in &mut tu) if *gap < tol {*coeff = 0.;*tl=f64::NEG_INFINITY;*tu=f64::INFINITY;});
     let accept_reject = &coeff * trnd(&tl, &tu);
     // case: abs(u-l)<tol, uses inverse-transform
-    let pl = (tl / f64::SQRT_2()).map(|x| faddeeva::erfc(*x) / 2.);
-    let pu = (tu / f64::SQRT_2()).map(|x| faddeeva::erfc(*x) / 2.);
+    let pl = (&tl / f64::SQRT_2()).map(|x| faddeeva::erfc(*x) / 2.);
+    let pu = (&tu / f64::SQRT_2()).map(|x| faddeeva::erfc(*x) / 2.);
     let sample = Array1::random(l.len(), Uniform::new(0., 1.));
+
     let inverse_transform =
         f64::SQRT_2() * (2. * (&pl - (&pl - pu) * sample)).map(|x| erfc_inv(*x));
-    &coeff * accept_reject + (1. - coeff) * inverse_transform
+    let out = &coeff * &accept_reject + (1. - &coeff) * &inverse_transform;
+
+    out
 }
 
 fn ln_normal_pr<D: ndarray::Dimension>(a: &Array<f64, D>, b: &Array<f64, D>) -> Array<f64, D> {
@@ -130,7 +116,7 @@ fn ln_normal_pr<D: ndarray::Dimension>(a: &Array<f64, D>, b: &Array<f64, D>) -> 
             let pa = ln_phi_f64(a);
             let pb = ln_phi_f64(b);
             pa + (-1. * (pb - pa).exp()).ln_1p()
-        } else if a < b {
+        } else if b < 0.0 {
             let pa = ln_phi_f64(-a);
             let pb = ln_phi_f64(-b);
             pb + (-1. * (pa - pb).exp()).ln_1p()
@@ -172,7 +158,9 @@ fn trandn(l: &Array1<f64>, u: &Array1<f64>) -> Array1<f64> {
     coeff *= &accepted.mapv(|x| if x { 1. } else { 0. });
     let coeff_compliment = coeff.mapv(|x| if x == 0. { 1. } else { 0. });
     let alt = tn(l, u);
-    coeff * sample + coeff_compliment * alt
+    let mut alt_part = Array1::zeros(l.len());
+    par_azip!((coeff_compl in &coeff_compliment, alt in &alt, alt_part in &mut alt_part) {if *coeff_compl == 0. { *alt_part = 0. } else { *alt_part = coeff_compl * alt}});
+    coeff * sample + alt_part
 }
 
 fn cholperm(
@@ -191,10 +179,10 @@ fn cholperm(
         let L_chunk = L.slice(s![j..d, 0..j]);
         let s = (&diag.slice_axis(Axis(0), Slice::from(j..d))
             - L_chunk.map(|x| x * x).sum_axis(Axis(1)))
-        .map(|&x: &f64| if x < 0. { f64::EPSILON } else { x.sqrt() });
+        .map(|&x: &f64| if x > 0. { x.sqrt() } else { f64::EPSILON });
         let subtr = L_chunk.dot(&z.slice(s![0..j]));
         let tl = (&l.slice_axis(Axis(0), Slice::from(j..d)) - &subtr) / &s;
-        let tu = (&u.slice_axis(Axis(0), Slice::from(j..d)) - subtr) / s;
+        let tu = (&u.slice_axis(Axis(0), Slice::from(j..d)) - subtr) / &s;
         pr.slice_mut(s![j..d]).assign(&ln_normal_pr(&tl, &tu));
         let k = pr.argmin().unwrap();
         // update rows and cols of sigma
@@ -210,7 +198,10 @@ fn cholperm(
         // construct L sequentially via Cholesky computation
         let mut s_scalar = sigma[[j, j]] - L.slice(s![j, 0..j]).mapv(|x| x * x).sum();
         // if s_scalar < -0.01, sigma isn't pos semi-def
-        if s_scalar < 0. {
+        if s_scalar < -0.01 {
+            println!("SIGMA ISN'T POSITIVE DEFINITE")
+        }
+        if s_scalar <= 0. {
             s_scalar = f64::EPSILON;
         }
         s_scalar = s_scalar.sqrt();
@@ -285,7 +276,13 @@ fn grad_psi(
     (grad, J)
 }
 
-fn psy(x: Array1<f64>, L: Array2<f64>, l: Array1<f64>, u: Array1<f64>, mu: Array1<f64>) -> f64 {
+fn psy(
+    x: &Array1<f64>,
+    L: &Array2<f64>,
+    l: &Array1<f64>,
+    u: &Array1<f64>,
+    mu: &Array1<f64>,
+) -> f64 {
     // implements psi(x,mu); assumes scaled 'L' without diagonal;
     let mut temp = Array1::zeros(x.len() + 1);
     temp.slice_mut(s![..x.len()]).assign(&x);
@@ -343,37 +340,47 @@ fn mv_normal_pr(
     (prob, rel_err)
 }
 
-pub fn mv_normal_cdf(
-    l: Array1<f64>,
-    u: Array1<f64>,
-    sigma: Array2<f64>,
-    n: usize,
-) -> (f64, f64, f64) {
-    let mut l = l;
-    let mut u = u;
-    let mut sigma = sigma;
-
+fn solve_optimial_tiling(
+    mut l: Array1<f64>,
+    mut u: Array1<f64>,
+    mut sigma: Array2<f64>,
+) -> (
+    Array2<f64>,
+    Array1<f64>,
+    Array1<f64>,
+    Array1<f64>,
+    Array1<f64>,
+    Array1<usize>,
+) {
     let d = l.shape()[0];
-    let (mut L, _perm) = cholperm(&mut sigma, &mut l, &mut u);
+    let (mut L, perm) = cholperm(&mut sigma, &mut l, &mut u);
     let D = L.diag().to_owned();
 
-    let u = u / &D;
-    let l = l / &D;
+    u = u / &D;
+    l = l / &D;
     L = (L / (Array2::<f64>::zeros([D.len(), D.len()]) + &D).t()) - Array2::<f64>::eye(d);
 
     // find optimal tilting parameter via non-linear equation solver
     let problem = optimization::TilingProblem::new(L.clone(), l.clone(), u.clone());
     let (result, _report) = LevenbergMarquardt::new().minimize(problem);
-    //assert!(report.termination.was_successful());
-    //assert!(report.objective_function.abs() < 1e-10);
 
     let x = result.get_x().slice(s![..d - 1]).to_owned();
     // assign saddlepoint x* and mu*
     let mu = result.get_x().slice(s![d - 1..(2 * (d - 1))]).to_owned();
+    (L, l, u, x, mu, perm)
+}
+
+pub fn mv_truncnormal_cdf(
+    l: Array1<f64>,
+    u: Array1<f64>,
+    sigma: Array2<f64>,
+    n: usize,
+) -> (f64, f64, f64) {
+    let (L, l, u, x, mu, _) = solve_optimial_tiling(l, u, sigma);
     // compute psi star
     let (est, rel_err) = mv_normal_pr(n, &L, &l, &u, &mu);
     // calculate an upper bound
-    let log_upbnd = psy(x, L, l, u, mu);
+    let log_upbnd = psy(&x, &L, &l, &u, &mu);
     /*
     if log_upbnd < -743. {
         panic!(
@@ -383,6 +390,102 @@ pub fn mv_normal_cdf(
     */
     let upbnd = log_upbnd.exp();
     (est, rel_err, upbnd)
+}
+
+fn mv_truncnorm_proposal(
+    L: &Array2<f64>,
+    l: &Array1<f64>,
+    u: &Array1<f64>,
+    mu: &Array1<f64>,
+    n: usize,
+) -> (Array1<f64>, Array2<f64>) {
+    /*
+    % generates the proposals from the exponentially tilted
+    % sequential importance sampling pdf;
+    % output:    'p', log-likelihood of sample
+    %             Z, random sample
+    */
+    let d = l.shape()[0];
+    let mut logp = Array1::zeros(n);
+    let mut temp = Array1::zeros(mu.shape()[0] + 1);
+    temp.slice_mut(s![..d - 1]).assign(&mu);
+    let mu = temp;
+    let mut Z = Array2::zeros((d, n));
+    let mut col;
+    let mut tl;
+    let mut tu;
+    for k in 0..d - 1 {
+        col = L.slice(s![k, ..k]).dot(&Z.slice(s![..k, ..]));
+        tl = l[[k]] - mu[[k]] - &col;
+        tu = u[[k]] - mu[[k]] - col;
+        // simulate N(mu, 1) conditional on [tl,tu]
+        Z.index_axis_mut(Axis(0), k)
+            .assign(&(mu[[k]] + trandn(&tl, &tu)));
+        // update likelihood ratio
+        logp = logp + ln_normal_pr(&tl, &tu) + 0.5 * mu[[k]].powi(2)
+            - mu[[k]] * &Z.index_axis(Axis(0), k);
+    }
+    (logp, Z)
+}
+
+pub fn mv_truncnormal_rand(
+    mut l: Array1<f64>,
+    mut u: Array1<f64>,
+    mut sigma: Array2<f64>,
+    n: usize,
+) -> Array2<f64> {
+    let d = l.len();
+    let (Lfull, perm) = cholperm(&mut sigma, &mut l, &mut u);
+    let D = Lfull.diag().to_owned();
+
+    u = u / &D;
+    l = l / &D;
+    let L = (&Lfull / &(Array2::<f64>::zeros([D.len(), D.len()]) + &D).t()) - Array2::<f64>::eye(d);
+
+    // find optimal tilting parameter via non-linear equation solver
+    let problem = optimization::TilingProblem::new(L.clone(), l.clone(), u.clone());
+    let (result, _report) = LevenbergMarquardt::new().minimize(problem);
+
+    let x = result.get_x().slice(s![..d - 1]).to_owned();
+    // assign saddlepoint x* and mu*
+    let mu = result.get_x().slice(s![d - 1..(2 * (d - 1))]).to_owned();
+    let psi_star = psy(&x, &L, &l, &u, &mu); // compute psi star
+    let (logp, mut Z) = mv_truncnorm_proposal(&L, &l, &u, &mu, n);
+
+    let accept_condition = |logp: &Array1<f64>, accepted: &mut Array1<bool>| {
+        let test_sample: Array1<f64> = Array1::random(logp.len(), Uniform::new(0., 1.));
+        par_azip!((&s in &test_sample, &logp in logp, acc in accepted) {
+                if -1. * s.ln() > (psi_star - logp) {
+                    *acc = true;
+                }
+        })
+    };
+    let mut accepted: Array1<bool> = Array1::from_elem(Z.ncols(), false);
+    accept_condition(&logp, &mut accepted);
+    while !accepted.fold(true, |a, b| a && *b) {
+        let (logp, sample) = mv_truncnorm_proposal(&L, &l, &u, &mu, n);
+        Zip::from(Z.axis_iter_mut(Axis(1)))
+            .and(sample.axis_iter(Axis(1)))
+            .and(&accepted)
+            .for_each(|mut z, s, &acc| {
+                if !acc {
+                    z.assign(&s);
+                }
+            });
+        accept_condition(&logp, &mut accepted);
+    }
+    // postprocess samples
+    let mut unperm = perm.into_iter().zip(0..d).collect::<Vec<(usize, usize)>>();
+    unperm.sort_by(|a, b| a.0.cmp(&b.0));
+    let order: Vec<usize> = unperm.iter().map(|x| x.1).collect();
+
+    let mut rv = Array2::zeros((Z.nrows(), Z.ncols()));
+    // reverse scaling of L
+    rv = Z.t().dot(&Lfull).reversed_axes();
+    for i in 0..d {
+        rv.row_mut(i).assign(&Z.row(order[i]));
+    }
+    rv.reversed_axes()
 }
 
 #[cfg(test)]
@@ -480,8 +583,13 @@ mod tests {
         let u = Array1::ones(d);
         let sigma: Array2<f64> =
             Array2::from_elem((25, 25), -0.07692307692307693) + Array2::<f64>::eye(25) * 2.;
-        let (est, rel_err, upper_bound) = mv_normal_cdf(l, u, sigma, 10000);
+        let (est, rel_err, upper_bound) = mv_truncnormal_cdf(l, u, sigma, 10000);
         println!("{:?}", (est, rel_err, upper_bound));
+        /* Should be close to:
+        prob: 2.6853e-53
+        relErr: 2.1390e-04
+        upbnd: 2.8309e-53
+        */
     }
     #[bench]
     fn bench_mv_normal_cdf(b: &mut Bencher) {
@@ -490,6 +598,13 @@ mod tests {
         let u = Array1::ones(d);
         let sigma: Array2<f64> =
             Array2::from_elem((25, 25), -0.07692307692307693) + Array2::<f64>::eye(25) * 2.;
-        b.iter(|| test::black_box(mv_normal_cdf(l.clone(), u.clone(), sigma.clone(), 10000)));
+        b.iter(|| {
+            test::black_box(mv_truncnormal_cdf(
+                l.clone(),
+                u.clone(),
+                sigma.clone(),
+                10000,
+            ))
+        });
     }
 }
