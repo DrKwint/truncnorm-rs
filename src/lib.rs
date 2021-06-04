@@ -18,7 +18,6 @@ use ndarray::Axis;
 use ndarray::Slice;
 use ndarray::Zip;
 use ndarray_rand::rand_distr::num_traits::FloatConst;
-use ndarray_rand::rand_distr::Normal;
 use ndarray_rand::rand_distr::StandardNormal;
 use ndarray_rand::RandomExt;
 use ndarray_stats::QuantileExt;
@@ -29,13 +28,86 @@ mod faddeeva;
 mod optimization;
 mod util;
 
-fn ln_phi<D: ndarray::Dimension>(x: &Array<f64, D>) -> Array<f64, D> {
-    x.mapv(|v| -0.5 * v.powi(2) - f64::LN_2() + (faddeeva::erfcx(v / f64::SQRT_2()).ln()))
+fn ln_phi_f64(x: f64) -> f64 {
+    -0.5 * x.powi(2) - f64::LN_2() + faddeeva::erfcx(x / f64::SQRT_2()).ln()
 }
 
-fn ln_phi_f64(x: f64) -> f64 {
-    -0.5 * x.powi(2) - f64::LN_2() + (faddeeva::erfcx(x / f64::SQRT_2()).ln())
+fn ln_normal_pr<D: ndarray::Dimension>(a: &Array<f64, D>, b: &Array<f64, D>) -> Array<f64, D> {
+    Zip::from(a).and(b).par_map_collect(|&a, &b| {
+        if a > 0.0 {
+            let pa = ln_phi_f64(a);
+            let pb = ln_phi_f64(b);
+            pa + (-1. * (pb - pa).exp()).ln_1p()
+        } else if b < 0.0 {
+            let pa = ln_phi_f64(-a);
+            let pb = ln_phi_f64(-b);
+            pb + (-1. * (pa - pb).exp()).ln_1p()
+        } else {
+            let pa = faddeeva::erfc(-1. * a / f64::SQRT_2()) / 2.;
+            let pb = faddeeva::erfc(b / f64::SQRT_2()) / 2.;
+            (-pa - pb).ln_1p()
+        }
+    })
 }
+
+fn cholperm(
+    sigma: &mut Array2<f64>,
+    l: &mut Array1<f64>,
+    u: &mut Array1<f64>,
+) -> (Array2<f64>, Array1<usize>) {
+    let d = l.shape()[0];
+    let mut L: Array2<f64> = Array2::zeros((d, d));
+    let mut z: Array1<f64> = Array1::zeros(d);
+    let mut perm = Array::range(0., d as f64, 1.);
+
+    for j in 0..d {
+        let mut pr = Array1::from_elem(d, f64::INFINITY);
+        let diag = sigma.diag();
+        let L_chunk = L.slice(s![j..d, 0..j]);
+        let s = (&diag.slice_axis(Axis(0), Slice::from(j..d))
+            - L_chunk.map(|x| x.powi(2)).sum_axis(Axis(1)))
+        .map(|&x: &f64| if x > 0. { x.sqrt() } else { f64::EPSILON });
+        let subtr = L_chunk.dot(&z.slice(s![0..j]));
+        let tl = (&l.slice_axis(Axis(0), Slice::from(j..d)) - &subtr) / &s;
+        let tu = (&u.slice_axis(Axis(0), Slice::from(j..d)) - subtr) / &s;
+        pr.slice_mut(s![j..d]).assign(&ln_normal_pr(&tl, &tu));
+        let k = pr.argmin().unwrap();
+        // update rows and cols of sigma
+        util::swap_rows(sigma, j, k);
+        util::swap_cols(sigma, j, k);
+        // update only rows of L
+        util::swap_rows(&mut L, j, k);
+        // update integration limits
+        l.swap(j, k);
+        u.swap(j, k);
+        perm.swap(j, k); // keep track of permutation
+
+        // construct L sequentially via Cholesky computation
+        let mut s_scalar = sigma[[j, j]] - L.slice(s![j, 0..j]).mapv(|x| x.powi(2)).sum();
+        // if s_scalar < -0.01, sigma isn't pos semi-def
+        if s_scalar < -0.01 {
+            println!("SIGMA ISN'T POSITIVE DEFINITE")
+        }
+        if s_scalar <= 0. {
+            s_scalar = f64::EPSILON;
+        }
+        s_scalar = s_scalar.sqrt();
+        L[[j, j]] = s_scalar;
+
+        let sub_term = L.slice(s![j + 1..d, 0..j]).dot(&L.slice(s![j, 0..j]).t());
+        let mut L_slice = L.slice_mut(s![(j + 1)..d, j]);
+        L_slice.assign(&(&(&sigma.slice(s![(j + 1)..d, j]) - sub_term) / s_scalar));
+
+        // find mean value, z(j), of truncated normal
+        let tl_s = (l[[j]] - L.slice(s![j, ..j]).dot(&z.slice(s![..j]))) / s_scalar;
+        let tu_s = (u[[j]] - L.slice(s![j, ..j]).dot(&z.slice(s![..j]))) / s_scalar;
+        let w = ln_normal_pr(&array![tl_s], &array![tu_s])[[0]]; // aids in computing expected value of trunc. normal
+        z[[j]] = ((-0.5 * tl_s.powi(2) - w).exp() - (-0.5 * tl_s.powi(2) - w).exp())
+            / (f64::TAU()).sqrt();
+    }
+    (L, perm.map(|x| *x as usize))
+}
+
 
 fn ntail(l: Array1<f64>, u: Array1<f64>) -> (Array1<f64>, Array1<bool>) {
     /*
@@ -110,24 +182,6 @@ fn tn(l: &Array1<f64>, u: &Array1<f64>) -> Array1<f64> {
     out
 }
 
-fn ln_normal_pr<D: ndarray::Dimension>(a: &Array<f64, D>, b: &Array<f64, D>) -> Array<f64, D> {
-    Zip::from(a).and(b).par_map_collect(|&a, &b| {
-        if a > 0.0 {
-            let pa = ln_phi_f64(a);
-            let pb = ln_phi_f64(b);
-            pa + (-1. * (pb - pa).exp()).ln_1p()
-        } else if b < 0.0 {
-            let pa = ln_phi_f64(-a);
-            let pb = ln_phi_f64(-b);
-            pb + (-1. * (pa - pb).exp()).ln_1p()
-        } else {
-            let pa = faddeeva::erfc(-1. * a / 2f64.sqrt()) / 2.;
-            let pb = faddeeva::erfc(b / 2f64.sqrt()) / 2.;
-            (-pa - pb).ln_1p()
-        }
-    })
-}
-
 /*
 %% truncated normal generator
 % * efficient generator of a vector of length(l)=length(u)
@@ -161,64 +215,6 @@ fn trandn(l: &Array1<f64>, u: &Array1<f64>) -> Array1<f64> {
     let mut alt_part = Array1::zeros(l.len());
     par_azip!((coeff_compl in &coeff_compliment, alt in &alt, alt_part in &mut alt_part) {if *coeff_compl == 0. { *alt_part = 0. } else { *alt_part = coeff_compl * alt}});
     coeff * sample + alt_part
-}
-
-fn cholperm(
-    sigma: &mut Array2<f64>,
-    l: &mut Array1<f64>,
-    u: &mut Array1<f64>,
-) -> (Array2<f64>, Array1<usize>) {
-    let d = l.shape()[0];
-    let mut L: Array2<f64> = Array2::zeros((d, d));
-    let mut z: Array1<f64> = Array1::zeros(d);
-    let mut perm = Array::range(0., d as f64, 1.);
-
-    for j in 0..d {
-        let mut pr = Array1::from_elem(d, f64::INFINITY);
-        let diag = sigma.diag();
-        let L_chunk = L.slice(s![j..d, 0..j]);
-        let s = (&diag.slice_axis(Axis(0), Slice::from(j..d))
-            - L_chunk.map(|x| x * x).sum_axis(Axis(1)))
-        .map(|&x: &f64| if x > 0. { x.sqrt() } else { f64::EPSILON });
-        let subtr = L_chunk.dot(&z.slice(s![0..j]));
-        let tl = (&l.slice_axis(Axis(0), Slice::from(j..d)) - &subtr) / &s;
-        let tu = (&u.slice_axis(Axis(0), Slice::from(j..d)) - subtr) / &s;
-        pr.slice_mut(s![j..d]).assign(&ln_normal_pr(&tl, &tu));
-        let k = pr.argmin().unwrap();
-        // update rows and cols of sigma
-        util::swap_rows(sigma, j, k);
-        util::swap_cols(sigma, j, k);
-        // update only rows of L
-        util::swap_rows(&mut L, j, k);
-        // update integration limits
-        l.swap(j, k);
-        u.swap(j, k);
-        perm.swap(j, k); // keep track of permutation
-
-        // construct L sequentially via Cholesky computation
-        let mut s_scalar = sigma[[j, j]] - L.slice(s![j, 0..j]).mapv(|x| x * x).sum();
-        // if s_scalar < -0.01, sigma isn't pos semi-def
-        if s_scalar < -0.01 {
-            println!("SIGMA ISN'T POSITIVE DEFINITE")
-        }
-        if s_scalar <= 0. {
-            s_scalar = f64::EPSILON;
-        }
-        s_scalar = s_scalar.sqrt();
-        L[[j, j]] = s_scalar;
-
-        let sub_term = L.slice(s![j + 1..d, 0..j]).dot(&L.slice(s![j, 0..j]).t());
-        let mut L_slice = L.slice_mut(s![(j + 1)..d, j]);
-        L_slice.assign(&(&(&sigma.slice(s![(j + 1)..d, j]) - sub_term) / s_scalar));
-
-        // find mean value, z(j), of truncated normal
-        let tl_s = (l[[j]] - L.slice(s![j, ..j]).dot(&z.slice(s![..j]))) / s_scalar;
-        let tu_s = (u[[j]] - L.slice(s![j, ..j]).dot(&z.slice(s![..j]))) / s_scalar;
-        let w = ln_normal_pr(&array![tl_s], &array![tu_s])[[0]]; // aids in computing expected value of trunc. normal
-        z[[j]] = ((-0.5 * tl_s.powi(2) - w).exp() - (-0.5 * tl_s.powi(2) - w).exp())
-            / (2. * f64::PI()).sqrt();
-    }
-    (L, perm.map(|x| *x as usize))
 }
 
 fn grad_psi(
@@ -495,50 +491,20 @@ mod tests {
     use super::*;
     use ndarray::array;
     use ndarray_rand::rand_distr::Uniform;
+    use ndarray_rand::rand_distr::Normal;
     use test::Bencher;
-    #[bench]
-    // e1::2.44e2
-    fn bench_ln_phi(b: &mut Bencher) {
-        let uniform = Uniform::new(0., 1.);
-        let array = Array2::random((10, 1), uniform);
-        b.iter(|| test::black_box(ln_phi(&array)));
-    }
+
     #[bench]
     // with par e0::2.63e3, e1::1.22e4, e2::1.94e4, e3::4.85e4
-    fn bench_ln_normal_pr(b: &mut Bencher) {
-        let uniform = Uniform::new(0., 1.);
-        let a = Array2::random((10, 1), uniform);
-        let c = a.clone() + 1.;
-        b.iter(|| test::black_box(ln_normal_pr(&a, &c)));
+    fn bench_ln_normal_pr(bench: &mut Bencher) {
+        let normal = Normal::new(0., 1.).unwrap();
+        let uniform = Uniform::new(0., 2.);
+        let a = Array2::random((10, 1), normal);
+        let b = Array2::random((10, 1), uniform);
+        let c = a.clone() + b;
+        bench.iter(|| test::black_box(ln_normal_pr(&a, &c)));
     }
-    #[test]
-    fn test_ln_phi() {
-        let input = array![[
-            0.7678795357983608,
-            0.775926702041096,
-            0.4592172963543707,
-            0.6750136982949272,
-            0.9998139994873408,
-            0.5719173297223431,
-            0.7643746298574979,
-            0.9094240148586821,
-            0.42768598138497393,
-            0.16708163974083368
-        ]];
-        let output = array![[
-            -1.5083292213263122,
-            -1.5191579413843266,
-            -1.1299820171413066,
-            -1.3869604589413567,
-            -1.8407379829199821,
-            -1.2598767412635383,
-            -1.503628445807411,
-            -1.7061516137282158,
-            -1.0952981502401034,
-            -0.835510820268897,
-        ]];
-        assert_eq!(ln_phi(&input), output)
-    }
+
     #[bench]
     // e1::1.57e5, e2::2.83e6, e3::4.20e8
     fn bench_cholperm(b: &mut Bencher) {
@@ -551,6 +517,8 @@ mod tests {
         let mut u = 2. * &l;
         b.iter(|| test::black_box(cholperm(&mut sigma, &mut l, &mut u)));
     }
+    
+    
     #[test]
     fn test_mv_normal_pr() {
         let dim = 10;
@@ -591,6 +559,8 @@ mod tests {
         upbnd: 2.8309e-53
         */
     }
+
+
     #[bench]
     fn bench_mv_normal_cdf(b: &mut Bencher) {
         let d = 25;
