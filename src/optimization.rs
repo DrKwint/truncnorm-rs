@@ -1,4 +1,4 @@
-#[allow(non_snake_case)]
+#![allow(non_snake_case)]
 extern crate levenberg_marquardt;
 extern crate nalgebra;
 
@@ -13,6 +13,7 @@ use nalgebra::VecStorage;
 use nalgebra::U1;
 use ndarray::{Array1, Array2};
 
+#[derive(Debug)]
 pub struct TilingProblem {
     x: DVector<f64>,
     L: Array2<f64>,
@@ -29,9 +30,9 @@ impl TilingProblem {
         let jac_shape = jacobian.shape();
         TilingProblem {
             x: DVector::zeros(2 * (l.len() - 1)),
-            L: L,
-            l: l,
-            u: u,
+            L,
+            l,
+            u,
             residuals: Some(DVector::from_vec(residuals.to_vec())),
             jacobian: Some(DMatrix::from_vec(
                 jac_shape[0],
@@ -40,7 +41,7 @@ impl TilingProblem {
             )),
         }
     }
-    pub fn get_x(self: &Self) -> Array1<f64> {
+    pub fn get_x(&self) -> Array1<f64> {
         Array1::from_vec(self.x.data.as_vec().to_vec())
     }
 }

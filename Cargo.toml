@@ -8,7 +8,7 @@ edition = "2018"
 ndarray = {version = "0.15.2", features = ["rayon"] }
 ndarray-stats = "*"
 ndarray-rand = "*"
-ndarray-linalg = "*"
+ndarray-linalg = { path = "../ndarray-linalg/ndarray-linalg/", features = ["intel-mkl-static"]} # using path to bump ndarray dependency and intel-mkl to avoid pathological OpenBlas threading
 rand = "*"
 levenberg-marquardt = "0.8.0"
 nalgebra = "0.25.3" # version required by lm package
@@ -17,3 +17,13 @@ statrs = "*"
 [build-dependencies]
 bindgen = "*"
 cc = "*"
+
+[profile.bench]
+lto = true
+codegen-units = 1
+panic = "abort"
+
+[profile.release]
+lto = true
+codegen-units = 1
+panic = "abort"
