@@ -7,9 +7,9 @@ edition = "2018"
 description   = ""
 documentation = "https://docs.rs/ndarray-linalg/"
 repository    = "https://github.com/drkwint/truncnorm-rs"
-keywords      = ["ndarray", "statistics", "distributions", "mathematics", "bindings", "random", "truncated", "probability"]
+keywords      = ["ndarray", "statistics", "mathematics", "random", "probability"]
 license       = "MIT"
-readme        = "../README.md"
+readme        = "README.md"
 categories    = ["algorithms", "simulation", "science"]
 
 [dependencies]
@@ -20,7 +20,7 @@ rand = "0.8.4"
 levenberg-marquardt = "0.8.0"
 nalgebra = "0.25.3" # version required by lm package
 statrs = "0.15.0"
-ndarray-linalg = { git = "https://github.com/rust-ndarray/ndarray-linalg" }
+ndarray-linalg = { git = "https://github.com/rust-ndarray/ndarray-linalg" } # crates.io version depends on ndarray 0.14
 
 [build-dependencies]
 bindgen = "*"
