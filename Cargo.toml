@@ -4,26 +4,28 @@ version = "0.1.0"
 authors = ["Eleanor Quint <eleanorquint1@gmail.com>"]
 edition = "2018"
 
+description   = ""
+documentation = "https://docs.rs/ndarray-linalg/"
+repository    = "https://github.com/drkwint/truncnorm-rs"
+keywords      = ["ndarray", "statistics", "distributions", "mathematics", "bindings", "random", "truncated", "probability"]
+license       = "MIT"
+readme        = "../README.md"
+categories    = ["algorithms", "simulation", "science"]
+
 [dependencies]
-ndarray = {version = "0.15.2", features = ["rayon"] }
-ndarray-stats = "*"
-ndarray-rand = "*"
-ndarray-linalg = { path = "../ndarray-linalg/ndarray-linalg/", features = ["intel-mkl-static"]} # using path to bump ndarray dependency and intel-mkl to avoid pathological OpenBlas threading
-rand = "*"
+ndarray = {version = "0.15.3", features = ["rayon"] }
+ndarray-stats = "0.5.0"
+ndarray-rand = "0.14.0"
+rand = "0.8.4"
 levenberg-marquardt = "0.8.0"
 nalgebra = "0.25.3" # version required by lm package
-statrs = "*"
+statrs = "0.15.0"
+ndarray-linalg = { git = "https://github.com/rust-ndarray/ndarray-linalg" }
 
 [build-dependencies]
 bindgen = "*"
 cc = "*"
 
-[profile.bench]
-lto = true
-codegen-units = 1
-panic = "abort"
-
-[profile.release]
-lto = true
-codegen-units = 1
-panic = "abort"
+# Math rendering on docs.rs
+[package.metadata.docs.rs]
+rustdoc-args = ["--html-in-header", "katex-header.html"]
