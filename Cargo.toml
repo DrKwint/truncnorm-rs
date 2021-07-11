@@ -4,8 +4,8 @@ version = "0.1.0"
 authors = ["Eleanor Quint <eleanorquint1@gmail.com>"]
 edition = "2018"
 
-description   = ""
-documentation = "https://docs.rs/ndarray-linalg/"
+description   = "Normal and Truncated Normal distributions"
+documentation = ""
 repository    = "https://github.com/drkwint/truncnorm-rs"
 keywords      = ["ndarray", "statistics", "mathematics", "random", "probability"]
 license       = "MIT"
