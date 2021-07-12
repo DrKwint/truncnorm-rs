@@ -23,7 +23,7 @@ use statrs::function::erf::erfc_inv;
 
 fn ln_phi(x: f64) -> f64 {
 	//! computes logarithm of tail of $Z\sim N(0,1)$ mitigating numerical roundoff errors
-	-0.5 * x.powi(2) - f64::LN_2() + erfcx(x * f64::FRAC_1_SQRT_2()).ln()
+	-0.5 * x * x - f64::LN_2() + erfcx(x * f64::FRAC_1_SQRT_2()).ln()
 }
 
 pub fn ln_normal_pr<D: ndarray::Dimension>(a: &Array<f64, D>, b: &Array<f64, D>) -> Array<f64, D> {
@@ -62,7 +62,7 @@ fn cholperm(
 
 		let subtr = L_chunk.dot(&z.slice(s![0..j]));
 		let s = (&diag.slice_axis(Axis(0), Slice::from(j..d))
-			- L_chunk.mapv(|x| x.powi(2)).sum_axis(Axis(1)))
+			- L_chunk.mapv(|x| x * x).sum_axis(Axis(1)))
 		.map(|&x: &f64| if x > 0. { x.sqrt() } else { f64::EPSILON });
 		let tl = (&l.slice_axis(Axis(0), Slice::from(j..d)) - &subtr) / &s;
 		let tu = (&u.slice_axis(Axis(0), Slice::from(j..d)) - subtr) / s;
@@ -80,7 +80,7 @@ fn cholperm(
 		perm.swap(j, k); // keep track of permutation
 
 		// construct L sequentially via Cholesky computation
-		let mut s_scalar = sigma[[j, j]] - L.slice(s![j, 0..j]).mapv(|x| x.powi(2)).sum();
+		let mut s_scalar = sigma[[j, j]] - L.slice(s![j, 0..j]).mapv(|x| x * x).sum();
 		// if s_scalar < -0.01, sigma isn't pos semi-def
 		if s_scalar <= 0. {
 			s_scalar = f64::EPSILON;
@@ -99,13 +99,13 @@ fn cholperm(
 		let tl_s = (l[[j]] - sub_term) / s_scalar;
 		let tu_s = (u[[j]] - sub_term) / s_scalar;
 		let w = ln_normal_pr(&array![tl_s], &array![tu_s])[[0]]; // aids in computing expected value of trunc. normal
-		z[[j]] = ((-0.5 * tl_s.powi(2) - w).exp() - (-0.5 * tu_s.powi(2) - w).exp())
+		z[[j]] = ((-0.5 * tl_s * tl_s - w).exp() - (-0.5 * tu_s * tu_s - w).exp())
 			/ (f64::TAU()).sqrt();
 	}
 	(L, perm.mapv(|x| x as usize))
 }
 
-fn ntail(l: Array1<f64>, u: Array1<f64>, max_iters: usize) -> Array1<f64> {
+fn ntail(l: &Array1<f64>, u: &Array1<f64>, max_iters: usize) -> Array1<f64> {
 	/*
 	% samples a vector from the standard normal
 	% distribution truncated over the region [l,u], where l>0 and
@@ -114,13 +114,13 @@ fn ntail(l: Array1<f64>, u: Array1<f64>, max_iters: usize) -> Array1<f64> {
 	*/
 	let c = l.map(|x| x.powi(2) / 2.);
 	let f = Zip::from(&c)
-		.and(&u)
-		.par_map_collect(|&c, &u| (c - u.powi(2) / 2.).exp_m1());
+		.and(u)
+		.par_map_collect(|&c, &u| (c - u * u / 2.).exp_m1());
 	// use rejection sample pattern
 	let accept_condition = |x: &Array1<f64>, accepted: &mut Array1<bool>| {
 		let test_sample: Array1<f64> = Array1::random(l.len(), Uniform::new(0., 1.));
 		par_azip!((x in x, &s in &test_sample, &c in &c, acc in accepted) {
-		    if s.powi(2) * x < c {
+		    if s * s * x < c {
 			*acc = true;
 		    }
 		})
@@ -194,7 +194,7 @@ pub fn trandn(l: &Array1<f64>, u: &Array1<f64>, max_iters: usize) -> Array1<f64>
 	    else if *tu < -thresh {*tl = -*tu; *tu = -*tl; *coeff = -1.}
 	    else {*tl = -100.; *tu = 100.; *coeff=0.;} // sample from another method, set params to always accept
 	});
-	let acc_rej_sample = ntail(tl, tu, max_iters);
+	let acc_rej_sample = ntail(&tl, &tu, max_iters);
 	let trunc_norm_sample = tn(l, u, max_iters);
 	&coeff * acc_rej_sample + (1. - &coeff.mapv(|x: f64| x.abs())) * trunc_norm_sample
 }
@@ -263,16 +263,16 @@ fn psy(
 ) -> f64 {
 	// implements psi(x,mu); assumes scaled 'L' without diagonal;
 	let mut temp = Array1::zeros(x.len() + 1);
-	temp.slice_mut(s![..x.len()]).assign(&x);
+	temp.slice_mut(s![..x.len()]).assign(x);
 	let x = temp;
 	let mut temp = Array1::zeros(mu.len() + 1);
-	temp.slice_mut(s![..mu.len()]).assign(&mu);
+	temp.slice_mut(s![..mu.len()]).assign(mu);
 	let mu = temp;
 	// compute now ~l and ~u
 	let c = L.dot(&x);
 	let tl = l - &mu - &c;
 	let tu = u - &mu - &c;
-	(ln_normal_pr(&tl, &tu) + 0.5 * mu.mapv(|x| x.powi(2)) - x * mu).sum()
+	(ln_normal_pr(&tl, &tu) + 0.5 * mu.mapv(|x| x * x) - x * mu).sum()
 }
 
 /*
@@ -292,7 +292,7 @@ fn mv_normal_pr(
 	let d = l.shape()[0];
 	let mut p = Array1::zeros(n);
 	let mut temp = Array1::zeros(mu.shape()[0] + 1);
-	temp.slice_mut(s![..d - 1]).assign(&mu);
+	temp.slice_mut(s![..d - 1]).assign(mu);
 	let mu = temp;
 	let mut Z = Array2::zeros((d, n));
 	let mut col;
@@ -391,7 +391,7 @@ fn mv_truncnorm_proposal(
 	let d = l.shape()[0];
 	let mut logp = Array1::zeros(n);
 	let mut temp = Array1::zeros(mu.shape()[0] + 1);
-	temp.slice_mut(s![..d - 1]).assign(&mu);
+	temp.slice_mut(s![..d - 1]).assign(mu);
 	let mu = temp;
 	let mut Z = Array2::zeros((d, n));
 	let mut col;
@@ -405,7 +405,7 @@ fn mv_truncnorm_proposal(
 		Z.index_axis_mut(Axis(0), k)
 			.assign(&(mu[[k]] + trandn(&tl, &tu, max_iters)));
 		// update likelihood ratio
-		logp = logp + ln_normal_pr(&tl, &tu) + 0.5 * mu[[k]].powi(2)
+		logp = logp + ln_normal_pr(&tl, &tu) + 0.5 * mu[[k]] * mu[[k]]
 			- mu[[k]] * &Z.index_axis(Axis(0), k);
 	}
 	(logp, Z)
@@ -510,7 +510,7 @@ mod optimization {
 			let x = Array1::zeros(2 * (l.len() - 1));
 			let (residuals, jacobian) = grad_psi(&x, &L, &l, &u);
 			let jac_shape = jacobian.shape();
-			TilingProblem {
+			Self {
 				x: DVector::zeros(2 * (l.len() - 1)),
 				L,
 				l,
@@ -524,7 +524,7 @@ mod optimization {
 			}
 		}
 		pub fn get_x(&self) -> Array1<f64> {
-			Array1::from_vec(self.x.data.as_vec().to_vec())
+			Array1::from_vec(self.x.data.as_vec().clone())
 		}
 	}
 
@@ -535,7 +535,7 @@ mod optimization {
 
 		fn set_params(&mut self, x: &DVector<f64>) {
 			self.x = x.clone();
-			let x = Array1::from_vec(x.data.as_vec().to_vec());
+			let x = Array1::from_vec(x.data.as_vec().clone());
 			let (residuals, jacobian) = grad_psi(&x, &self.L, &self.l, &self.u);
 			let jac_shape = jacobian.shape();
 			self.residuals = Some(DVector::from_vec(residuals.to_vec()));
@@ -603,11 +603,10 @@ mod tests {
 		//let y = Array1::ones(d);
 		let y = Array::range(0., 2. * (d - 1) as f64, 1.);
 
-		let d = l.shape()[0];
 		let (mut L, _perm) = cholperm(&mut sigma, &mut l, &mut u);
 		let D = L.diag().to_owned();
-		u = u / &D;
-		l = l / &D;
+		u /= &D;
+		l /= &D;
 		L = (L / (Array2::<f64>::zeros([D.len(), D.len()]) + &D).t())
 			- Array2::<f64>::eye(d);
 		let (residuals, jacobian) = grad_psi(&y, &L, &l, &u);

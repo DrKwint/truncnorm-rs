@@ -8,7 +8,7 @@ use ndarray::Zip;
 use ndarray::{Array1, ArrayView1};
 use ndarray::{Ix1, Ix2};
 use ndarray_linalg::cholesky::Cholesky;
-use ndarray_linalg::eigh::*;
+use ndarray_linalg::eigh::Eigh;
 use ndarray_linalg::solveh::UPLO;
 use ndarray_rand::rand_distr::num_traits::FloatConst;
 use ndarray_rand::rand_distr::StandardNormal;
@@ -31,15 +31,18 @@ impl MultivariateNormal {
 		MultivariateNormal { loc, scale }
 	}
 
-	// Source: <http://gregorygundersen.com/blog/2019/10/30/scipy-multivariate/>
+	/// # Panics
+	/// Blah
+	///
+	/// Source: <http://gregorygundersen.com/blog/2019/10/30/scipy-multivariate/>
 	pub fn logp(&self, x: &Array1<f64>) -> f64 {
 		let (eig_vals, eig_vecs) = self.scale.eigh(UPLO::Lower).unwrap();
 		let logdet = eig_vals.mapv(|x| x.ln()).sum();
 		let inv_vals = eig_vals.mapv(|x| 1. / x);
 		let U = eig_vecs * inv_vals.mapv(|x| x.sqrt());
 		let dev = x - &self.loc;
-		let maha_dist = dev.dot(&U).mapv(|x| x.powi(2)).sum();
-		-0.5 * ((eig_vals.len() as f64) * f64::TAU().ln() + maha_dist + logdet)
+		let maha_dist = dev.dot(&U).mapv(|x| x * x).sum();
+		-0.5 * ((eig_vals.len() as f64).mul_add(f64::TAU().ln(), maha_dist) + logdet)
 	}
 }
 
@@ -66,6 +69,7 @@ pub struct MultivariateTruncatedNormal<D: Dimension> {
 }
 
 impl MultivariateTruncatedNormal<Ix1> {
+	/// # Panics
 	pub fn new(
 		loc: Array1<f64>,
 		scale: Array1<f64>,
@@ -97,7 +101,7 @@ impl MultivariateTruncatedNormal<Ix1> {
 			.and(&self.scale)
 			.and(&self.log_normalizer)
 			.par_map_collect(|&x, &s, &lnz| {
-				-(0.5 * x.powi(2) + halfrtln2pi + s.ln() - lnz)
+				-(0.5_f64.mul_add(x * x, halfrtln2pi) + s.ln() - lnz)
 			})
 			.sum()
 	}
