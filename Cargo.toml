@@ -9,6 +9,10 @@ repository    = "https://github.com/drkwint/truncnorm-rs"
 license       = "MIT"
 keywords      = ["ndarray", "statistics", "mathematics", "random", "probability"]
 categories    = ["algorithms", "simulation", "science"]
+exclude = [
+    ".github",
+    "src/profile_main.rs"
+]
 
 [dependencies]
 ndarray = {version = "^0.15.2", features = ["rayon"] }
