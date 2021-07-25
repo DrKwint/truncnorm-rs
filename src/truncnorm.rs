@@ -14,16 +14,21 @@ use ndarray::par_azip;
 use ndarray::Zip;
 use ndarray::{s, Axis, Slice};
 use ndarray::{Array, Array1, Array2};
-use ndarray_rand::rand_distr::num_traits::FloatConst;
 use ndarray_rand::rand_distr::StandardNormal;
 use ndarray_rand::RandomExt;
 use ndarray_stats::QuantileExt;
+use num::traits::FloatConst;
+use num::Float;
 use rand::distributions::Uniform;
 use statrs::function::erf::erfc_inv;
 
-fn ln_phi(x: f64) -> f64 {
+fn ln_phi<T: Float + FloatConst>(x: T) -> T
+where
+	f64: std::convert::From<T>,
+{
 	//! computes logarithm of tail of $Z\sim N(0,1)$ mitigating numerical roundoff errors
-	-0.5 * x * x - f64::LN_2() + erfcx(x * f64::FRAC_1_SQRT_2()).ln()
+	let x = f64::from(x);
+	T::from(-0.5 * x * x - f64::LN_2() + erfcx(x * f64::FRAC_1_SQRT_2()).ln()).unwrap()
 }
 
 pub fn ln_normal_pr<D: ndarray::Dimension>(a: &Array<f64, D>, b: &Array<f64, D>) -> Array<f64, D> {

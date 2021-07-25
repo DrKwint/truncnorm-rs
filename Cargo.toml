@@ -3,24 +3,23 @@ name = "truncnorm"
 version = "0.1.0"
 authors = ["Eleanor Quint <eleanorquint1@gmail.com>"]
 edition = "2018"
-
 description   = "Normal and Truncated Normal distributions"
-documentation = ""
-repository    = "https://github.com/drkwint/truncnorm-rs"
-keywords      = ["ndarray", "statistics", "mathematics", "random", "probability"]
-license       = "MIT"
 readme        = "README.md"
+repository    = "https://github.com/drkwint/truncnorm-rs"
+license       = "MIT"
+keywords      = ["ndarray", "statistics", "mathematics", "random", "probability"]
 categories    = ["algorithms", "simulation", "science"]
 
 [dependencies]
 ndarray = {version = "^0.15.2", features = ["rayon"] }
 ndarray-stats = "^0.5.0"
 ndarray-rand = "^0.14.0"
+num = "^0.4.0"
 rand = "^0.8.3"
 levenberg-marquardt = "^0.8.0"
 nalgebra = "^0.25.3" # version required by lm package
 statrs = "^0.15.0"
-ndarray-linalg = { git = "https://github.com/rust-ndarray/ndarray-linalg" } # crates.io version depends on ndarray 0.14
+ndarray-linalg = "^0.14.0"
 
 [build-dependencies]
 bindgen = "*"

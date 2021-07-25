@@ -62,8 +62,8 @@ impl Distribution<Array1<f64>> for MultivariateNormal {
 pub struct MultivariateTruncatedNormal<D: Dimension> {
 	loc: Array1<f64>,
 	scale: Array<f64, D>,
-	low: Array1<f64>,
-	high: Array1<f64>,
+	lbs: Array1<f64>,
+	ubs: Array1<f64>,
 	log_normalizer: Array1<f64>,
 	max_iters: usize,
 }
@@ -87,8 +87,8 @@ impl MultivariateTruncatedNormal<Ix1> {
 		Self {
 			loc,
 			scale,
-			low: lower_bounds,
-			high: upper_bounds,
+			lbs: lower_bounds,
+			ubs: upper_bounds,
 			log_normalizer,
 			max_iters: max_accept_reject_iters,
 		}
@@ -110,8 +110,8 @@ impl MultivariateTruncatedNormal<Ix1> {
 impl Distribution<Array1<f64>> for MultivariateTruncatedNormal<Ix1> {
 	fn sample<R: Rng + ?Sized>(&self, _rng: &mut R) -> Array1<f64> {
 		let X = truncnorm::trandn(
-			&((&self.low - &self.loc) / &self.scale),
-			&((&self.high - &self.loc) / &self.scale),
+			&((&self.lbs - &self.loc) / &self.scale),
+			&((&self.ubs - &self.loc) / &self.scale),
 			self.max_iters,
 		);
 		&self.loc + &self.scale * X
@@ -122,15 +122,15 @@ impl MultivariateTruncatedNormal<Ix2> {
 	pub fn new(
 		loc: Array1<f64>,
 		scale: Array2<f64>,
-		low: Array1<f64>,
-		high: Array1<f64>,
+		lbs: Array1<f64>,
+		ubs: Array1<f64>,
 		max_accept_reject_iters: usize,
 	) -> Self {
 		Self {
 			loc,
 			scale,
-			low,
-			high,
+			lbs,
+			ubs,
 			log_normalizer: array![0.], // unused field
 			max_iters: max_accept_reject_iters,
 		}
@@ -140,8 +140,8 @@ impl MultivariateTruncatedNormal<Ix2> {
 impl Distribution<Array2<f64>> for MultivariateTruncatedNormal<Ix2> {
 	fn sample<R: Rng + ?Sized>(&self, _rng: &mut R) -> Array2<f64> {
 		truncnorm::mv_truncnormal_rand(
-			self.low.clone(),
-			self.high.clone(),
+			self.lbs.clone(),
+			self.ubs.clone(),
 			self.scale.clone(),
 			1,
 			self.max_iters,

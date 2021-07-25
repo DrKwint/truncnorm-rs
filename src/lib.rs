@@ -5,9 +5,17 @@
 //! and TruncatedNormal distributions as well as low level binding to Gaussian
 //! error functions.
 //!
-//! I've initially written all this code for my dissertation work. I've put
+//! I've written all this code for my dissertation work. I've put
 //! some effort into correctness and speed, but both could surely be improved.
 //! Rely on this code at your own risk as no guarantees can be made about it.
+//! Feel free to contact me if you're interested in using this for any purpose
+//! and it doesn't work 100%.
+//!
+//! Largely based on the Matlab [Truncated Normal and Student's t-distribution toolbox](https://www.mathworks.com/matlabcentral/fileexchange/53796-truncated-normal-and-student-s-t-distribution-toolbox)
+//! and [Faddeeva C library](http://ab-initio.mit.edu/wiki/index.php/Faddeeva_Package)
+//!
+//! Cheers!  
+//! Eleanor Quint
 extern crate ndarray;
 extern crate ndarray_linalg;
 extern crate ndarray_rand;
