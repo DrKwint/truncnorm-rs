@@ -26,8 +26,8 @@ statrs = "^0.15.0"
 ndarray-linalg = "^0.14.0"
 
 [build-dependencies]
-bindgen = "*"
-cc = "*"
+bindgen = "^0.58.1"
+cc = "^1.0.68"
 
 # Math rendering on docs.rs
 [package.metadata.docs.rs]
