@@ -177,8 +177,21 @@ fn tn(l: &Array1<f64>, u: &Array1<f64>, max_iters: usize) -> Array1<f64> {
 	let sample = Array1::random(l.len(), Uniform::new(0., 1.));
 
 	let inverse_transform =
-		f64::SQRT_2() * (2. * (&pl - (&pl - pu) * sample)).map(|x| erfc_inv(*x));
-	&coeff * &accept_reject + (1. - &coeff) * &inverse_transform
+		f64::SQRT_2() * (2. * (&pl - (&pl - &pu) * sample)).map(|x| erfc_inv(*x));
+	let mut result = &coeff * &accept_reject + (1. - &coeff) * &inverse_transform;
+	if result.iter().any(|x| x.is_nan()) {
+		result = coeff.iter()
+			.zip(inverse_transform.iter())
+			.zip(accept_reject.iter())
+			.map(|x| {
+				if *x.0.0 == 0. {
+					*x.0.1
+				} else {
+					*x.1
+				}
+			}).collect();
+	}
+	result
 }
 
 /// fast truncated normal generator
@@ -320,6 +333,7 @@ fn mv_normal_pr(
 	p = p + ln_normal_pr(&tl, &tu);
 	p.mapv_inplace(|x: f64| x.exp());
 	let prob = p.mean().unwrap();
+	debug_assert!(!prob.is_sign_negative(), "Returned invalid probability, {:?}", prob);
 	let rel_err = p.std(0.) / (n as f64).sqrt() / prob;
 	(prob, rel_err)
 }
