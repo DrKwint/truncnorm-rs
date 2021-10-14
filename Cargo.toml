@@ -25,9 +25,20 @@ nalgebra = "^0.25.3" # version required by lm package
 statrs = "^0.15.0"
 ndarray-linalg = "^0.14.0"
 
+[dev-dependencies]
+ndarray-rand = "^0.14.0"
+proptest = "1.0.0"
+proptest-derive = "0.2.0"
+criterion = "0.3"
+ndarray-linalg = { version = "^0.14.0", features = ["openblas-system"] }
+
 [build-dependencies]
 bindgen = "^0.58.1"
 cc = "^1.0.68"
+
+[[bench]]
+name = "my_benchmark"
+harness = false
 
 # Math rendering on docs.rs
 [package.metadata.docs.rs]

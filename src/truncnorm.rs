@@ -20,31 +20,43 @@ use ndarray_stats::QuantileExt;
 use num::traits::FloatConst;
 use num::Float;
 use rand::distributions::Uniform;
+use rand::Rng;
+use rand::SeedableRng;
 use statrs::function::erf::erfc_inv;
 
 fn ln_phi<T: Float + FloatConst>(x: T) -> T
 where
 	f64: std::convert::From<T>,
+	T: std::convert::From<f64>,
 {
 	//! computes logarithm of tail of $Z\sim N(0,1)$ mitigating numerical roundoff errors
-	let x = f64::from(x);
-	T::from(-0.5 * x * x - f64::LN_2() + erfcx(x * f64::FRAC_1_SQRT_2()).ln()).unwrap()
+	let neg_half: T = num::NumCast::from(-0.5).unwrap();
+	neg_half * x * x - T::LN_2() + erfcx(x * T::FRAC_1_SQRT_2()).ln()
 }
 
-pub fn ln_normal_pr<D: ndarray::Dimension>(a: &Array<f64, D>, b: &Array<f64, D>) -> Array<f64, D> {
+pub fn ln_normal_pr<D: ndarray::Dimension, T: Float>(
+	a: &Array<T, D>,
+	b: &Array<T, D>,
+) -> Array<T, D>
+where
+	f64: std::convert::From<T>,
+	T: std::convert::From<f64> + num::traits::FloatConst,
+{
 	//! computes $\ln(\Pr(a<Z<b))$ where $Z\sim N(0,1)$ very accurately for any $a,b$
-	Zip::from(a).and(b).par_map_collect(|&a, &b| {
-		if a > 0.0 {
+	let neg_one = T::neg(T::one());
+	let two = T::one() + T::one();
+	Zip::from(a).and(b).map_collect(|&a, &b| {
+		if a > T::zero() {
 			let pa = ln_phi(a);
 			let pb = ln_phi(b);
-			pa + (-1. * (pb - pa).exp()).ln_1p()
-		} else if b < 0.0 {
+			pa + (neg_one * (pb - pa).exp()).ln_1p()
+		} else if b < T::zero() {
 			let pa = ln_phi(-a);
 			let pb = ln_phi(-b);
-			pb + (-1. * (pa - pb).exp()).ln_1p()
+			pb + (neg_one * (pa - pb).exp()).ln_1p()
 		} else {
-			let pa = erfc(-1. * a * f64::FRAC_1_SQRT_2()) / 2.;
-			let pb = erfc(b * f64::FRAC_1_SQRT_2()) / 2.;
+			let pa = erfc(neg_one * a * T::FRAC_1_SQRT_2()) / two;
+			let pb = erfc(b * T::FRAC_1_SQRT_2()) / two;
 			(-pa - pb).ln_1p()
 		}
 	})
@@ -104,13 +116,18 @@ fn cholperm(
 		let tl_s = (l[[j]] - sub_term) / s_scalar;
 		let tu_s = (u[[j]] - sub_term) / s_scalar;
 		let w = ln_normal_pr(&array![tl_s], &array![tu_s])[[0]]; // aids in computing expected value of trunc. normal
-		z[[j]] = ((-0.5 * tl_s * tl_s - w).exp() - (-0.5 * tu_s * tu_s - w).exp())
-			/ (f64::TAU()).sqrt();
+		z[[j]] =
+			((-0.5 * tl_s * tl_s - w).exp() - (-0.5 * tu_s * tu_s - w).exp()) / (f64::TAU()).sqrt();
 	}
 	(L, perm.mapv(|x| x as usize))
 }
 
-fn ntail(l: &Array1<f64>, u: &Array1<f64>, max_iters: usize) -> Array1<f64> {
+fn ntail<R: Rng + ?Sized>(
+	l: &Array1<f64>,
+	u: &Array1<f64>,
+	max_iters: usize,
+	rng: &mut R,
+) -> Array1<f64> {
 	/*
 	% samples a vector from the standard normal
 	% distribution truncated over the region [l,u], where l>0 and
@@ -122,38 +139,48 @@ fn ntail(l: &Array1<f64>, u: &Array1<f64>, max_iters: usize) -> Array1<f64> {
 		.and(u)
 		.par_map_collect(|&c, &u| (c - u * u / 2.).exp_m1());
 	// use rejection sample pattern
-	let accept_condition = |x: &Array1<f64>, accepted: &mut Array1<bool>| {
-		let test_sample: Array1<f64> = Array1::random(l.len(), Uniform::new(0., 1.));
+	let mut accept_condition = |x: &Array1<f64>, accepted: &mut Array1<bool>, rng: &mut R| {
+		let test_sample: Array1<f64> = Array1::random_using(l.len(), Uniform::new(0., 1.), rng);
 		par_azip!((x in x, &s in &test_sample, &c in &c, acc in accepted) {
-		    if s * s * x < c {
+			if s * s * x < c {
 			*acc = true;
-		    }
+			}
 		})
 	};
-	let proposal_sampler = || {
-		let sample = Array1::random(l.len(), Uniform::new(0., 1.));
+	let mut proposal_sampler = |rng: &mut R| {
+		let sample = Array1::random_using(l.len(), Uniform::new(0., 1.), rng);
 		&c - (1. + sample * &f).mapv(|x| x.ln())
 	};
 	let mut output_array =
-		util::rejection_sample(&accept_condition, &proposal_sampler, max_iters);
+		util::rejection_sample(&mut accept_condition, &mut proposal_sampler, max_iters, rng);
 	output_array.mapv_inplace(|x| (2. * x).sqrt());
 	output_array
 }
 
-fn trnd(l: &Array1<f64>, u: &Array1<f64>, max_iters: usize) -> Array1<f64> {
+fn trnd<R: Rng + ?Sized>(
+	l: &Array1<f64>,
+	u: &Array1<f64>,
+	max_iters: usize,
+	rng: &mut R,
+) -> Array1<f64> {
 	// use accept-reject pattern to sample from truncated N(0,1)
-	let accept_condition = |x: &Array1<f64>, accepted: &mut Array1<bool>| {
+	let mut accept_condition = |x: &Array1<f64>, accepted: &mut Array1<bool>, rng: &mut R| {
 		par_azip!((x in x, l in l, u in u, acc in accepted) {
-		    if x > l && x < u {
+			if x > l && x < u {
 			*acc = true;
-		    }
+			}
 		})
 	};
-	let proposal_sampler = || Array1::random(l.len(), StandardNormal);
-	util::rejection_sample(&accept_condition, &proposal_sampler, max_iters)
+	let mut proposal_sampler = |rng: &mut R| Array1::random_using(l.len(), StandardNormal, rng);
+	util::rejection_sample(&mut accept_condition, &mut proposal_sampler, max_iters, rng)
 }
 
-fn tn(l: &Array1<f64>, u: &Array1<f64>, max_iters: usize) -> Array1<f64> {
+fn tn<R: Rng + ?Sized>(
+	l: &Array1<f64>,
+	u: &Array1<f64>,
+	max_iters: usize,
+	rng: &mut R,
+) -> Array1<f64> {
 	/*
 	% samples a column vector of length=length(l)=length(u)
 	% from the standard multivariate normal distribution,
@@ -170,26 +197,22 @@ fn tn(l: &Array1<f64>, u: &Array1<f64>, max_iters: usize) -> Array1<f64> {
 	let mut tl = l.clone();
 	let mut tu = u.clone();
 	par_azip!((gap in &gap, coeff in &mut coeff, tl in &mut tl, tu in &mut tu) if *gap < tol {*coeff = 0.;*tl=f64::NEG_INFINITY;*tu=f64::INFINITY;});
-	let accept_reject = trnd(&tl, &tu, max_iters);
+	let accept_reject = trnd(&tl, &tu, max_iters, rng);
 	// case: abs(u-l)<tol, uses inverse-transform
 	let pl = (&tl * f64::FRAC_1_SQRT_2()).map(|x| erfc(*x) / 2.);
 	let pu = (&tu * f64::FRAC_1_SQRT_2()).map(|x| erfc(*x) / 2.);
-	let sample = Array1::random(l.len(), Uniform::new(0., 1.));
+	let sample = Array1::random_using(l.len(), Uniform::new(0., 1.), rng);
 
 	let inverse_transform =
 		f64::SQRT_2() * (2. * (&pl - (&pl - &pu) * sample)).map(|x| erfc_inv(*x));
 	let mut result = &coeff * &accept_reject + (1. - &coeff) * &inverse_transform;
 	if result.iter().any(|x| x.is_nan()) {
-		result = coeff.iter()
+		result = coeff
+			.iter()
 			.zip(inverse_transform.iter())
 			.zip(accept_reject.iter())
-			.map(|x| {
-				if *x.0.0 == 0. {
-					*x.0.1
-				} else {
-					*x.1
-				}
-			}).collect();
+			.map(|x| if *x.0 .0 == 0. { *x.0 .1 } else { *x.1 })
+			.collect();
 	}
 	result
 }
@@ -202,18 +225,23 @@ fn tn(l: &Array1<f64>, u: &Array1<f64>, max_iters: usize) -> Array1<f64> {
 /// 'Z' from the non-standard Gaussian $N(\mu,\sigma^2)$
 ///  conditional on $l<Z<u$, first simulate
 ///  $X=trandn((l-m)/s,(u-m)/s)$ and set $Z=\mu+\sigma X$;
-pub fn trandn(l: &Array1<f64>, u: &Array1<f64>, max_iters: usize) -> Array1<f64> {
+pub fn trandn<R: Rng + ?Sized>(
+	l: &Array1<f64>,
+	u: &Array1<f64>,
+	max_iters: usize,
+	rng: &mut R,
+) -> Array1<f64> {
 	let thresh = 0.66; // tunable threshold to choose method
 	let mut tl = l.clone();
 	let mut tu = u.clone();
 	let mut coeff = Array1::zeros(l.len());
 	par_azip!((tl in &mut tl, tu in &mut tu, coeff in &mut coeff) {
-	    if *tl > thresh {*coeff = 1.}
-	    else if *tu < -thresh {*tl = -*tu; *tu = -*tl; *coeff = -1.}
-	    else {*tl = -100.; *tu = 100.; *coeff=0.;} // sample from another method, set params to always accept
+		if *tl > thresh {*coeff = 1.}
+		else if *tu < -thresh {*tl = -*tu; *tu = -*tl; *coeff = -1.}
+		else {*tl = -100.; *tu = 100.; *coeff=0.;} // sample from another method, set params to always accept
 	});
-	let acc_rej_sample = ntail(&tl, &tu, max_iters);
-	let trunc_norm_sample = tn(l, u, max_iters);
+	let acc_rej_sample = ntail(&tl, &tu, max_iters, rng);
+	let trunc_norm_sample = tn(l, u, max_iters, rng);
 	&coeff * acc_rej_sample + (1. - &coeff.mapv(|x: f64| x.abs())) * trunc_norm_sample
 }
 
@@ -299,13 +327,14 @@ fn psy(
 % exponential tilting uses parameter 'mu';
 % Monte Carlo uses 'n' samples;
 */
-fn mv_normal_pr(
+fn mv_normal_pr<R: Rng + ?Sized>(
 	n: usize,
 	L: &Array2<f64>,
 	l: &Array1<f64>,
 	u: &Array1<f64>,
 	mu: &Array1<f64>,
 	max_iters: usize,
+	rng: &mut R,
 ) -> (f64, f64) {
 	let d = l.shape()[0];
 	let mut p = Array1::zeros(n);
@@ -322,7 +351,7 @@ fn mv_normal_pr(
 		tu = u[[k]] - mu[[k]] - col;
 		// simulate N(mu, 1) conditional on [tl,tu]
 		Z.index_axis_mut(Axis(0), k)
-			.assign(&(mu[[k]] + trandn(&tl, &tu, max_iters)));
+			.assign(&(mu[[k]] + trandn(&tl, &tu, max_iters, rng)));
 		// update likelihood ratio
 		p = p + ln_normal_pr(&tl, &tu) + 0.5 * mu[[k]].powi(2)
 			- mu[[k]] * &Z.index_axis(Axis(0), k);
@@ -333,7 +362,11 @@ fn mv_normal_pr(
 	p = p + ln_normal_pr(&tl, &tu);
 	p.mapv_inplace(|x: f64| x.exp());
 	let prob = p.mean().unwrap();
-	debug_assert!(!prob.is_sign_negative(), "Returned invalid probability, {:?}", prob);
+	debug_assert!(
+		!prob.is_sign_negative(),
+		"Returned invalid probability, {:?}",
+		prob
+	);
 	let rel_err = p.std(0.) / (n as f64).sqrt() / prob;
 	(prob, rel_err)
 }
@@ -370,36 +403,38 @@ fn solve_optimial_tiling(
 }
 
 /// multivariate normal cumulative distribution
-pub fn mv_truncnormal_cdf(
+pub fn mv_truncnormal_cdf<R: Rng + ?Sized>(
 	l: Array1<f64>,
 	u: Array1<f64>,
 	sigma: Array2<f64>,
 	n: usize,
 	max_iters: usize,
+	rng: &mut R,
 ) -> (f64, f64, f64) {
 	let (L, l, u, x, mu, _) = solve_optimial_tiling(l, u, sigma);
 	// compute psi star
-	let (est, rel_err) = mv_normal_pr(n, &L, &l, &u, &mu, max_iters);
+	let (est, rel_err) = mv_normal_pr(n, &L, &l, &u, &mu, max_iters, rng);
 	// calculate an upper bound
 	let log_upbnd = psy(&x, &L, &l, &u, &mu);
 	/*
 	if log_upbnd < -743. {
-	    panic!(
-	    "Natural log of upbnd probability is less than -743, yielding 0 after exponentiation!"
-	    )
+		panic!(
+		"Natural log of upbnd probability is less than -743, yielding 0 after exponentiation!"
+		)
 	}
 	*/
 	let upbnd = log_upbnd.exp();
 	(est, rel_err, upbnd)
 }
 
-fn mv_truncnorm_proposal(
+fn mv_truncnorm_proposal<R: Rng + ?Sized>(
 	L: &Array2<f64>,
 	l: &Array1<f64>,
 	u: &Array1<f64>,
 	mu: &Array1<f64>,
 	n: usize,
 	max_iters: usize,
+	rng: &mut R,
 ) -> (Array1<f64>, Array2<f64>) {
 	/*
 	% generates the proposals from the exponentially tilted
@@ -422,7 +457,7 @@ fn mv_truncnorm_proposal(
 		tu = u[[k]] - mu[[k]] - col;
 		// simulate N(mu, 1) conditional on [tl,tu]
 		Z.index_axis_mut(Axis(0), k)
-			.assign(&(mu[[k]] + trandn(&tl, &tu, max_iters)));
+			.assign(&(mu[[k]] + trandn(&tl, &tu, max_iters, rng)));
 		// update likelihood ratio
 		logp = logp + ln_normal_pr(&tl, &tu) + 0.5 * mu[[k]] * mu[[k]]
 			- mu[[k]] * &Z.index_axis(Axis(0), k);
@@ -431,12 +466,13 @@ fn mv_truncnorm_proposal(
 }
 
 /// truncated multivariate normal generator
-pub fn mv_truncnormal_rand(
+pub fn mv_truncnormal_rand<R: Rng + ?Sized>(
 	mut l: Array1<f64>,
 	mut u: Array1<f64>,
 	mut sigma: Array2<f64>,
 	n: usize,
 	max_iters: usize,
+	rng: &mut R,
 ) -> (Array2<f64>, Array1<f64>) {
 	let d = l.len();
 	let (Lfull, perm) = cholperm(&mut sigma, &mut l, &mut u);
@@ -444,8 +480,7 @@ pub fn mv_truncnormal_rand(
 
 	u /= &D;
 	l /= &D;
-	let L = (&Lfull / &(Array2::<f64>::zeros([D.len(), D.len()]) + &D).t())
-		- Array2::<f64>::eye(d);
+	let L = (&Lfull / &(Array2::<f64>::zeros([D.len(), D.len()]) + &D).t()) - Array2::<f64>::eye(d);
 
 	// find optimal tilting parameter via non-linear equation solver
 	let problem = optimization::TilingProblem::new(L.clone(), l.clone(), u.clone());
@@ -455,21 +490,21 @@ pub fn mv_truncnormal_rand(
 	// assign saddlepoint x* and mu*
 	let mu = result.get_x().slice(s![d - 1..(2 * (d - 1))]).to_owned();
 	let psi_star = psy(&x, &L, &l, &u, &mu); // compute psi star
-	let (logp, mut Z) = mv_truncnorm_proposal(&L, &l, &u, &mu, n, max_iters);
+	let (logp, mut Z) = mv_truncnorm_proposal(&L, &l, &u, &mu, n, max_iters, rng);
 
-	let accept_condition = |logp: &Array1<f64>, accepted: &mut Array1<bool>| {
-		let test_sample: Array1<f64> = Array1::random(logp.len(), Uniform::new(0., 1.));
+	let accept_condition = |logp: &Array1<f64>, accepted: &mut Array1<bool>, rng: &mut R| {
+		let test_sample: Array1<f64> = Array1::random_using(logp.len(), Uniform::new(0., 1.), rng);
 		par_azip!((&s in &test_sample, &logp in logp, acc in accepted) {
-		    if -1. * s.ln() > (psi_star - logp) {
+			if -1. * s.ln() > (psi_star - logp) {
 			*acc = true;
-		    }
+			}
 		})
 	};
 	let mut accepted: Array1<bool> = Array1::from_elem(Z.ncols(), false);
-	accept_condition(&logp, &mut accepted);
+	accept_condition(&logp, &mut accepted, rng);
 	let mut i = 0;
 	while !accepted.fold(true, |a, b| a && *b) {
-		let (logp, sample) = mv_truncnorm_proposal(&L, &l, &u, &mu, n, max_iters);
+		let (logp, sample) = mv_truncnorm_proposal(&L, &l, &u, &mu, n, max_iters, rng);
 		Zip::from(Z.axis_iter_mut(Axis(1)))
 			.and(sample.axis_iter(Axis(1)))
 			.and(&accepted)
@@ -478,7 +513,7 @@ pub fn mv_truncnormal_rand(
 					z.assign(&s);
 				}
 			});
-		accept_condition(&logp, &mut accepted);
+		accept_condition(&logp, &mut accepted, rng);
 		i += 1;
 		if i > max_iters {
 			println!("Ran out of accept-reject rounds");
@@ -492,8 +527,9 @@ pub fn mv_truncnormal_rand(
 
 	// reverse scaling of L
 	let mut rv = Lfull.dot(&Z);
+	let unperm_rv = rv.clone();
 	for (i, &ord) in order.iter().enumerate() {
-		rv.row_mut(i).assign(&Z.row(ord));
+		rv.row_mut(i).assign(&unperm_rv.row(ord));
 	}
 	(rv.reversed_axes(), logp)
 }
@@ -584,9 +620,23 @@ mod tests {
 	extern crate ndarray;
 	extern crate test;
 	use super::*;
+	use ndarray::{arr1, arr2};
 	use ndarray_rand::rand_distr::Normal;
 	use ndarray_rand::rand_distr::Uniform;
 	use test::Bencher;
+
+	#[test]
+	fn manual_rand_scale_test() {
+		let l = arr1(&[f64::NEG_INFINITY, f64::NEG_INFINITY]);
+		//let u: Array1<f64> = arr1(&[-7.33, 0.1]);
+		let u = arr1(&[-7.75, 9.11]);
+		let sigma = arr2(&[[10., -10.], [-10., 11.]]);
+		let mut rng = Pcg64::seed_from_u64(2);
+		let n = 10;
+		let max_iters = 10;
+		let samples = mv_truncnormal_rand(l, u, sigma, n, max_iters, &mut rng);
+		println!("samples: {:?}", samples);
+	}
 
 	#[bench]
 	// with par e0::2.63e3, e1::1.22e4, e2::1.94e4, e3::4.85e4
@@ -617,8 +667,8 @@ mod tests {
 		let d = 25;
 		let mut l = Array1::ones(d) / 2.;
 		let mut u = Array1::ones(d);
-		let mut sigma: Array2<f64> = Array2::from_elem((25, 25), -0.07692307692307693)
-			+ Array2::<f64>::eye(25) * 2.;
+		let mut sigma: Array2<f64> =
+			Array2::from_elem((25, 25), -0.07692307692307693) + Array2::<f64>::eye(25) * 2.;
 		//let y = Array1::ones(d);
 		let y = Array::range(0., 2. * (d - 1) as f64, 1.);
 
@@ -626,8 +676,7 @@ mod tests {
 		let D = L.diag().to_owned();
 		u /= &D;
 		l /= &D;
-		L = (L / (Array2::<f64>::zeros([D.len(), D.len()]) + &D).t())
-			- Array2::<f64>::eye(d);
+		L = (L / (Array2::<f64>::zeros([D.len(), D.len()]) + &D).t()) - Array2::<f64>::eye(d);
 		let (residuals, jacobian) = grad_psi(&y, &L, &l, &u);
 		println!("{:?}", (residuals, jacobian))
 	}
@@ -637,9 +686,10 @@ mod tests {
 		let d = 25;
 		let l = Array1::ones(d) / 2.;
 		let u = Array1::ones(d);
-		let sigma: Array2<f64> = Array2::from_elem((25, 25), -0.07692307692307693)
-			+ Array2::<f64>::eye(25) * 2.;
-		let (est, rel_err, upper_bound) = mv_truncnormal_cdf(l, u, sigma, 10000, 10);
+		let sigma: Array2<f64> =
+			Array2::from_elem((25, 25), -0.07692307692307693) + Array2::<f64>::eye(25) * 2.;
+		let mut rng = rand::thread_rng();
+		let (est, rel_err, upper_bound) = mv_truncnormal_cdf(l, u, sigma, 10000, 10, &mut rng);
 		println!("{:?}", (est, rel_err, upper_bound));
 		/* Should be close to:
 		prob: 2.6853e-53
@@ -653,11 +703,12 @@ mod tests {
 		let d = 3;
 		let l = Array1::ones(d) / 2.;
 		let u = Array1::ones(d);
-		let sigma: Array2<f64> = Array2::from_elem((d, d), -0.07692307692307693)
-			+ Array2::<f64>::eye(d) * 2.;
+		let sigma: Array2<f64> =
+			Array2::from_elem((d, d), -0.07692307692307693) + Array2::<f64>::eye(d) * 2.;
 		println!("l {}", l);
 		println!("u {}", u);
-		let (samples, logp) = mv_truncnormal_rand(l, u, sigma, 5, 10);
+		let mut rng = rand::thread_rng();
+		let (samples, logp) = mv_truncnormal_rand(l, u, sigma, 5, 10, &mut rng);
 		println!("{:?}", (samples, logp));
 	}
 
@@ -666,8 +717,9 @@ mod tests {
 		let d = 25;
 		let l = Array1::ones(d) / 2.;
 		let u = Array1::ones(d);
-		let sigma: Array2<f64> = Array2::from_elem((25, 25), -0.07692307692307693)
-			+ Array2::<f64>::eye(25) * 2.;
+		let sigma: Array2<f64> =
+			Array2::from_elem((25, 25), -0.07692307692307693) + Array2::<f64>::eye(25) * 2.;
+		let mut rng = rand::thread_rng();
 		b.iter(|| {
 			test::black_box(mv_truncnormal_cdf(
 				l.clone(),
@@ -675,6 +727,7 @@ mod tests {
 				sigma.clone(),
 				20000,
 				10,
+				&mut rng,
 			))
 		});
 	}

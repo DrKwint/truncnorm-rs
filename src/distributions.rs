@@ -100,19 +100,18 @@ impl MultivariateTruncatedNormal<Ix1> {
 		Zip::from(&std_x)
 			.and(&self.scale)
 			.and(&self.log_normalizer)
-			.par_map_collect(|&x, &s, &lnz| {
-				-(0.5_f64.mul_add(x * x, halfrtln2pi) + s.ln() - lnz)
-			})
+			.par_map_collect(|&x, &s, &lnz| -(0.5_f64.mul_add(x * x, halfrtln2pi) + s.ln() - lnz))
 			.sum()
 	}
 }
 
 impl Distribution<Array1<f64>> for MultivariateTruncatedNormal<Ix1> {
-	fn sample<R: Rng + ?Sized>(&self, _rng: &mut R) -> Array1<f64> {
+	fn sample<R: Rng + ?Sized>(&self, rng: &mut R) -> Array1<f64> {
 		let X = truncnorm::trandn(
 			&((&self.lbs - &self.loc) / &self.scale),
 			&((&self.ubs - &self.loc) / &self.scale),
 			self.max_iters,
+			rng,
 		);
 		&self.loc + &self.scale * X
 	}
@@ -138,13 +137,14 @@ impl MultivariateTruncatedNormal<Ix2> {
 }
 
 impl Distribution<Array2<f64>> for MultivariateTruncatedNormal<Ix2> {
-	fn sample<R: Rng + ?Sized>(&self, _rng: &mut R) -> Array2<f64> {
+	fn sample<R: Rng + ?Sized>(&self, rng: &mut R) -> Array2<f64> {
 		truncnorm::mv_truncnormal_rand(
 			self.lbs.clone(),
 			self.ubs.clone(),
 			self.scale.clone(),
 			1,
 			self.max_iters,
+			rng,
 		)
 		.0
 	}
