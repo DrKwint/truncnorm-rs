@@ -175,7 +175,11 @@ impl MultivariateTruncatedNormal<Ix2> {
 		self.tilting_solution.as_ref().unwrap()
 	}
 
-	fn sample_n<R: Rng + ?Sized>(&mut self, n: usize, rng: &mut R) -> (Array2<f64>, Array1<f64>) {
+	pub fn sample_n<R: Rng + ?Sized>(
+		&mut self,
+		n: usize,
+		rng: &mut R,
+	) -> (Array2<f64>, Array1<f64>) {
 		let lbs = self.lbs.clone();
 		let ubs = self.ubs.clone();
 		let scale = self.scale.clone();
