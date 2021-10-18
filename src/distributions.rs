@@ -3,6 +3,7 @@ use crate::dist_util::ln_normal_pr;
 use crate::tilting::TiltingProblem;
 use crate::tilting::TiltingSolution;
 use crate::truncnorm;
+use crate::truncnorm::solved_mv_truncnormal_rand;
 use ndarray::array;
 use ndarray::Array;
 use ndarray::Array2;
@@ -147,25 +148,48 @@ impl MultivariateTruncatedNormal<Ix2> {
 		}
 	}
 
-	pub fn cdf(&self) -> (f64, f64) {
-		todo!()
+	pub fn cdf<R: Rng + ?Sized>(
+		&mut self,
+		n: usize,
+		max_iters: usize,
+		rng: &mut R,
+	) -> (f64, f64, f64) {
+		truncnorm::solved_mv_truncnormal_cdf(self.get_tilting_solution(None), n, max_iters, rng)
 	}
 
 	/// # Panics
-	pub fn get_tilting_solution(&mut self) -> &TiltingSolution {
+	pub fn get_tilting_solution(
+		&mut self,
+		old_solution: Option<&TiltingSolution>,
+	) -> &TiltingSolution {
 		if self.tilting_solution.is_none() {
-			self.tilting_solution = Some(
-				TiltingProblem::new(self.lbs.clone(), self.ubs.clone(), self.scale.clone())
-					.solve_optimial_tilting(),
-			);
+			self.tilting_solution = {
+				let mut problem =
+					TiltingProblem::new(self.lbs.clone(), self.ubs.clone(), self.scale.clone());
+				if let Some(old_soln) = old_solution {
+					problem.with_initialization(&old_soln.x, &old_soln.mu);
+				}
+				Some(problem.solve_optimial_tilting())
+			};
 		}
 		self.tilting_solution.as_ref().unwrap()
+	}
+
+	fn sample_n<R: Rng + ?Sized>(&mut self, n: usize, rng: &mut R) -> (Array2<f64>, Array1<f64>) {
+		let lbs = self.lbs.clone();
+		let ubs = self.ubs.clone();
+		let scale = self.scale.clone();
+		let max_iters = self.max_iters;
+		let tilting_solution = self.get_tilting_solution(None);
+		solved_mv_truncnormal_rand(tilting_solution, lbs, ubs, scale, n, max_iters, rng)
 	}
 }
 
 impl Distribution<Array2<f64>> for MultivariateTruncatedNormal<Ix2> {
 	fn sample<R: Rng + ?Sized>(&self, rng: &mut R) -> Array2<f64> {
-		truncnorm::mv_truncnormal_rand(
+		let tilting_solution = self.tilting_solution.as_ref().unwrap();
+		solved_mv_truncnormal_rand(
+			tilting_solution,
 			self.lbs.clone(),
 			self.ubs.clone(),
 			self.scale.clone(),

@@ -119,6 +119,12 @@ impl TiltingProblem {
         Array1::from_vec(self.x.data.as_vec().clone())
     }
 
+    pub fn with_initialization(&mut self, x: &Array1<f64>, mu: &Array1<f64>) {
+        let mut vec = x.to_vec();
+        vec.extend(mu.to_vec());
+        self.x = DVector::from_vec(vec);
+    }
+
     pub fn solve_optimial_tilting(self) -> TiltingSolution {
         let (result, _report) = LevenbergMarquardt::new()
             .with_ftol(1e-2)

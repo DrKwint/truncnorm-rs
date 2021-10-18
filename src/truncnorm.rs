@@ -9,6 +9,7 @@ use crate::dist_util::cholperm;
 use crate::dist_util::ln_normal_pr;
 use crate::faddeeva::erfc;
 use crate::tilting::TiltingProblem;
+use crate::tilting::TiltingSolution;
 use crate::util;
 use levenberg_marquardt::LevenbergMarquardt;
 use ndarray::azip;
@@ -254,6 +255,70 @@ fn mv_truncnorm_proposal<R: Rng + ?Sized>(
 	(logp, Z)
 }
 
+pub fn solved_mv_truncnormal_rand<R: Rng + ?Sized>(
+	tilting_solution: &TiltingSolution,
+	mut l: Array1<f64>,
+	mut u: Array1<f64>,
+	mut sigma: Array2<f64>,
+	n: usize,
+	max_iters: usize,
+	rng: &mut R,
+) -> (Array2<f64>, Array1<f64>) {
+	let d = l.len();
+	let (Lfull, perm) = cholperm(&mut sigma, &mut l, &mut u);
+	let D = Lfull.diag().to_owned();
+
+	u /= &D;
+	l /= &D;
+	let L = (&Lfull / &(Array2::<f64>::zeros([D.len(), D.len()]) + &D).t()) - Array2::<f64>::eye(d);
+
+	let x = &tilting_solution.x;
+	let mu = &tilting_solution.mu;
+	let psi_star = psy(x, &L, &l, &u, mu); // compute psi star
+	let (logp, mut Z) = mv_truncnorm_proposal(&L, &l, &u, mu, n, max_iters, rng);
+
+	let accept_condition = |logp: &Array1<f64>, accepted: &mut Array1<bool>, rng: &mut R| {
+		let test_sample: Array1<f64> = Array1::random_using(logp.len(), Uniform::new(0., 1.), rng);
+		azip!((&s in &test_sample, &logp in logp, acc in accepted) {
+			if -1. * s.ln() > (psi_star - logp) {
+			*acc = true;
+			}
+		})
+	};
+	let mut accepted: Array1<bool> = Array1::from_elem(Z.ncols(), false);
+	accept_condition(&logp, &mut accepted, rng);
+	let mut i = 0;
+	while !accepted.fold(true, |a, b| a && *b) {
+		let (logp, sample) = mv_truncnorm_proposal(&L, &l, &u, mu, n, max_iters, rng);
+		Zip::from(Z.axis_iter_mut(Axis(1)))
+			.and(sample.axis_iter(Axis(1)))
+			.and(&accepted)
+			.for_each(|mut z, s, &acc| {
+				if !acc {
+					z.assign(&s);
+				}
+			});
+		accept_condition(&logp, &mut accepted, rng);
+		i += 1;
+		if i > max_iters {
+			println!("Ran out of accept-reject rounds");
+			break;
+		}
+	}
+	// postprocess samples
+	let mut unperm = perm.into_iter().zip(0..d).collect::<Vec<(usize, usize)>>();
+	unperm.sort_by(|a, b| a.0.cmp(&b.0));
+	let order: Vec<usize> = unperm.iter().map(|x| x.1).collect();
+
+	// reverse scaling of L
+	let mut rv = Lfull.dot(&Z);
+	let unperm_rv = rv.clone();
+	for (i, &ord) in order.iter().enumerate() {
+		rv.row_mut(i).assign(&unperm_rv.row(ord));
+	}
+	(rv.reversed_axes(), logp)
+}
+
 /// truncated multivariate normal generator
 pub fn mv_truncnormal_rand<R: Rng + ?Sized>(
 	mut l: Array1<f64>,
@@ -321,6 +386,41 @@ pub fn mv_truncnormal_rand<R: Rng + ?Sized>(
 		rv.row_mut(i).assign(&unperm_rv.row(ord));
 	}
 	(rv.reversed_axes(), logp)
+}
+
+pub fn solved_mv_truncnormal_cdf<R: Rng + ?Sized>(
+	tilting_solution: &TiltingSolution,
+	n: usize,
+	max_iters: usize,
+	rng: &mut R,
+) -> (f64, f64, f64) {
+	// compute psi star
+	let (est, rel_err) = mv_normal_pr(
+		n,
+		&tilting_solution.lower_tri,
+		&tilting_solution.lower,
+		&tilting_solution.upper,
+		&tilting_solution.mu,
+		max_iters,
+		rng,
+	);
+	// calculate an upper bound
+	let log_upbnd = psy(
+		&tilting_solution.x,
+		&tilting_solution.lower_tri,
+		&tilting_solution.lower,
+		&tilting_solution.upper,
+		&tilting_solution.mu,
+	);
+	/*
+	if log_upbnd < -743. {
+		panic!(
+		"Natural log of upbnd probability is less than -743, yielding 0 after exponentiation!"
+		)
+	}
+	*/
+	let upbnd = log_upbnd.exp();
+	(est, rel_err, upbnd)
 }
 
 /// multivariate normal cumulative distribution
