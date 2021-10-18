@@ -1,6 +1,6 @@
+use ndarray::azip;
 use ndarray::Array1;
 use ndarray::Array2;
-use ndarray::{azip, par_azip};
 use rand::Rng;
 
 pub fn swap_rows<S: Clone>(matrix: &mut Array2<S>, a: usize, b: usize) {
@@ -47,6 +47,7 @@ pub fn rejection_sample<R: Rng + ?Sized>(
     x
 }
 
+/*
 #[allow(dead_code)]
 pub fn par_rejection_sample(
     accept_condition: &mut dyn FnMut(&mut Array1<f64>, &mut Array1<bool>),
@@ -69,6 +70,7 @@ pub fn par_rejection_sample(
     }
     x
 }
+*/
 
 #[cfg(test)]
 mod tests {

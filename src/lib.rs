@@ -1,3 +1,4 @@
+#![warn(clippy::all, clippy::pedantic, clippy::nursery, clippy::cargo)]
 #![feature(test)]
 #![feature(destructuring_assignment)]
 #![allow(non_snake_case)]
@@ -22,8 +23,10 @@ extern crate ndarray_rand;
 extern crate ndarray_stats;
 extern crate statrs;
 
+mod dist_util;
 pub mod distributions;
 mod faddeeva;
+mod tilting;
 pub mod truncnorm;
 mod util;
 

@@ -1,4 +1,7 @@
 //! High level distributions
+use crate::dist_util::ln_normal_pr;
+use crate::tilting::TiltingProblem;
+use crate::tilting::TiltingSolution;
 use crate::truncnorm;
 use ndarray::array;
 use ndarray::Array;
@@ -27,14 +30,17 @@ pub struct MultivariateNormal {
 }
 
 impl MultivariateNormal {
-	pub fn new(loc: Array1<f64>, scale: Array2<f64>) -> Self {
-		MultivariateNormal { loc, scale }
+	#[must_use]
+	pub const fn new(loc: Array1<f64>, scale: Array2<f64>) -> Self {
+		Self { loc, scale }
 	}
 
 	/// # Panics
 	/// Blah
 	///
 	/// Source: <http://gregorygundersen.com/blog/2019/10/30/scipy-multivariate/>
+	#[must_use]
+	#[allow(clippy::cast_precision_loss)]
 	pub fn logp(&self, x: &Array1<f64>) -> f64 {
 		let (eig_vals, eig_vecs) = self.scale.eigh(UPLO::Lower).unwrap();
 		let logdet = eig_vals.mapv(|x| x.ln()).sum();
@@ -66,10 +72,12 @@ pub struct MultivariateTruncatedNormal<D: Dimension> {
 	ubs: Array1<f64>,
 	log_normalizer: Array1<f64>,
 	max_iters: usize,
+	tilting_solution: Option<TiltingSolution>,
 }
 
 impl MultivariateTruncatedNormal<Ix1> {
 	/// # Panics
+	#[must_use]
 	pub fn new(
 		loc: Array1<f64>,
 		scale: Array1<f64>,
@@ -80,7 +88,7 @@ impl MultivariateTruncatedNormal<Ix1> {
 		assert_eq!(loc.shape(), scale.shape());
 		assert_eq!(loc.shape(), lower_bounds.shape());
 		assert_eq!(loc.shape(), upper_bounds.shape());
-		let log_normalizer = truncnorm::ln_normal_pr(
+		let log_normalizer = ln_normal_pr(
 			&((&lower_bounds - &loc) / &scale),
 			&((&upper_bounds - &loc) / &scale),
 		);
@@ -91,16 +99,18 @@ impl MultivariateTruncatedNormal<Ix1> {
 			ubs: upper_bounds,
 			log_normalizer,
 			max_iters: max_accept_reject_iters,
+			tilting_solution: None,
 		}
 	}
 
+	#[must_use]
 	pub fn log_prob(&self, x: ArrayView1<f64>) -> f64 {
 		let std_x = (&x - &self.loc) / &self.scale;
 		let halfrtln2pi = 0.5 * (f64::TAU()).ln();
 		Zip::from(&std_x)
 			.and(&self.scale)
 			.and(&self.log_normalizer)
-			.par_map_collect(|&x, &s, &lnz| -(0.5_f64.mul_add(x * x, halfrtln2pi) + s.ln() - lnz))
+			.map_collect(|&x, &s, &lnz| -(0.5_f64.mul_add(x * x, halfrtln2pi) + s.ln() - lnz))
 			.sum()
 	}
 }
@@ -118,6 +128,7 @@ impl Distribution<Array1<f64>> for MultivariateTruncatedNormal<Ix1> {
 }
 
 impl MultivariateTruncatedNormal<Ix2> {
+	#[must_use]
 	pub fn new(
 		loc: Array1<f64>,
 		scale: Array2<f64>,
@@ -132,7 +143,23 @@ impl MultivariateTruncatedNormal<Ix2> {
 			ubs,
 			log_normalizer: array![0.], // unused field
 			max_iters: max_accept_reject_iters,
+			tilting_solution: None,
 		}
+	}
+
+	pub fn cdf(&self) -> (f64, f64) {
+		todo!()
+	}
+
+	/// # Panics
+	pub fn get_tilting_solution(&mut self) -> &TiltingSolution {
+		if self.tilting_solution.is_none() {
+			self.tilting_solution = Some(
+				TiltingProblem::new(self.lbs.clone(), self.ubs.clone(), self.scale.clone())
+					.solve_optimial_tilting(),
+			);
+		}
+		self.tilting_solution.as_ref().unwrap()
 	}
 }
 
