@@ -26,7 +26,7 @@ extern crate statrs;
 mod dist_util;
 pub mod distributions;
 mod faddeeva;
-mod tilting;
+pub mod tilting;
 pub mod truncnorm;
 mod util;
 
