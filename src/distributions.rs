@@ -150,7 +150,12 @@ impl MultivariateTruncatedNormal<Ix2> {
 
     pub fn cdf<R: Rng + ?Sized>(&mut self, n: usize, rng: &mut R) -> (f64, f64, f64) {
         let max_iters = self.max_iters;
+        assert!(self.tilting_solution.is_some());
         truncnorm::solved_mv_truncnormal_cdf(self.get_tilting_solution(None), n, max_iters, rng)
+    }
+
+    pub fn try_get_tilting_solution(&self) -> Option<&TiltingSolution> {
+        self.tilting_solution.as_ref()
     }
 
     /// # Panics

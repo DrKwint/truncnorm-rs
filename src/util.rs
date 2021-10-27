@@ -95,3 +95,37 @@ mod tests {
         assert_eq!(matrix, new_matrix);
     }
 }
+
+use std::mem;
+
+#[derive(Clone, Eq, PartialEq, Hash)]
+struct DecodedF64 {
+    bits: u64,
+    exponent: i16,
+    sign: i8,
+}
+
+impl DecodedF64 {
+    fn new(val: f64) -> Self {
+        let (bits, exponent, sign) = integer_decode(val);
+        Self {
+            bits,
+            exponent,
+            sign,
+        }
+    }
+}
+
+fn integer_decode(val: f64) -> (u64, i16, i8) {
+    let bits: u64 = unsafe { mem::transmute(val) };
+    let sign: i8 = if bits >> 63 == 0 { 1 } else { -1 };
+    let mut exponent: i16 = ((bits >> 52) & 0x7ff) as i16;
+    let mantissa = if exponent == 0 {
+        (bits & 0xfffffffffffff) << 1
+    } else {
+        (bits & 0xfffffffffffff) | 0x10000000000000
+    };
+
+    exponent -= 1023 + 52;
+    (mantissa, exponent, sign)
+}
