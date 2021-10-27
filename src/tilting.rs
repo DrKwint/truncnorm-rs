@@ -7,6 +7,7 @@ use crate::dist_util::{cholperm, ln_normal_pr};
 use argmin::prelude::ArgminOp;
 use argmin::prelude::Error;
 use argmin::prelude::*;
+use argmin::solver::gaussnewton::GaussNewton;
 use argmin::solver::trustregion::{CauchyPoint, Dogleg, Steihaug, TrustRegion};
 use levenberg_marquardt::LeastSquaresProblem;
 use levenberg_marquardt::LevenbergMarquardt;
@@ -79,14 +80,11 @@ fn grad_psi(
 #[derive(Debug, Clone)]
 pub struct TiltingProblem {
     d: usize,
-    sigma: Array2<f64>,
     perm: Array1<usize>,
-    x: Array1<f64>, //DVector<f64>,
+    x: Array1<f64>,
     L: Array2<f64>,
     l: Array1<f64>,
     u: Array1<f64>,
-    residuals: Option<Array1<f64>>, //Option<DVector<f64>>,
-    jacobian: Option<Array2<f64>>,  //Option<DMatrix<f64>>,
 }
 
 impl TiltingProblem {
@@ -98,27 +96,13 @@ impl TiltingProblem {
         u /= &D;
         l /= &D;
         L = (L / (Array2::<f64>::zeros([D.len(), D.len()]) + &D).t()) - Array2::<f64>::eye(d);
-
-        let x = Array1::zeros(2 * (l.len() - 1));
-        let (residuals, jacobian) = grad_psi(&x, &L, &l, &u);
-        let jac_shape = jacobian.shape();
-
         Self {
             d,
-            sigma,
             perm,
-            x: Array1::zeros(2 * (l.len() - 1)), //DVector::zeros(2 * (l.len() - 1)),
+            x: Array1::zeros(2 * (l.len() - 1)),
             L,
             l,
             u,
-            residuals: Some(residuals), //Some(DVector::from_vec(residuals.to_vec())),
-            jacobian: Some(jacobian),   /*
-                                        Some(DMatrix::from_vec(
-                                            jac_shape[0],
-                                            jac_shape[1],
-                                            jacobian.into_raw_vec(),
-                                        )),
-                                        */
         }
     }
 
@@ -129,32 +113,32 @@ impl TiltingProblem {
     pub fn with_initialization(&mut self, x: &Array1<f64>, mu: &Array1<f64>) {
         let mut vec = x.to_vec();
         vec.extend(mu.to_vec());
+        if vec.len() < 2 * (self.d - 1) {
+            vec.resize(2 * (self.d - 1), 0.);
+        }
         self.x = Array1::from_vec(vec); //DVector::from_vec(vec);
     }
 
     pub fn solve_optimial_tilting(self) -> TiltingSolution {
-        /*
-        let (result, _report) = LevenbergMarquardt::new()
-            .with_ftol(1e-2)
-            .with_xtol(1e-2)
-            .minimize(self.clone());
-        //println!("{:?}", _report);
-
-        let x = result.get_x().slice(s![..self.d - 1]).to_owned();
+        let solver = GaussNewton::new();
+        //println!("Init: {:?}", self.x);
+        let result = Executor::new(self.clone(), solver, self.x.clone())
+            //.add_observer(ArgminSlogLogger::term(), ObserverMode::Always)
+            .max_iters(10)
+            .run();
+        //if result.is_err() {
+        //    println!("TILTING RESULT ERR: {:?}", result.as_ref().err());
+        //}
+        let best_param = if result.is_ok() {
+            result.ok().unwrap().state().get_best_param()
+        } else {
+            self.x
+        };
+        let x = best_param.slice(s![..self.d - 1]).to_owned();
         // assign saddlepoint x* and mu*
-        let mu = result
-            .get_x()
+        let mu = best_param
             .slice(s![self.d - 1..(2 * (self.d - 1))])
             .to_owned();
-        */
-        let subproblem = CauchyPoint::new();
-        let solver = TrustRegion::new(subproblem);
-        let res = Executor::new(self.clone(), solver, self.x)
-            .add_observer(ArgminSlogLogger::term(), ObserverMode::Always)
-            .max_iters(50)
-            .run();
-        let x = Array1::zeros(10);
-        let mu = Array1::zeros(10);
         TiltingSolution {
             lower_tri: self.L,
             lower: self.l,
@@ -170,7 +154,7 @@ impl ArgminOp for TiltingProblem {
     /// Type of the parameter vector
     type Param = Array1<f64>;
     /// Type of the return value computed by the cost function
-    type Output = f64;
+    type Output = Array1<f64>;
     /// Type of the Hessian. Can be `()` if not needed.
     type Hessian = Array2<f64>;
     /// Type of the Jacobian. Can be `()` if not needed.
@@ -180,52 +164,26 @@ impl ArgminOp for TiltingProblem {
 
     /// Apply the cost function to a parameter `p`
     fn apply(&self, p: &Self::Param) -> Result<Self::Output, Error> {
-        Ok(self.residuals.clone().unwrap().mapv(|x| x * x).sum())
+        let (residuals, jacobian) = grad_psi(p, &self.L, &self.l, &self.u);
+        Ok(residuals) //.mapv(|x| x * x).sum())
     }
 
     /// Compute the gradient at parameter `p`.
-    //fn gradient(&self, p: &Self::Param) -> Result<Self::Param, Error> {
-    //    Ok(self.jacobian.unwrap())
-    //}
+    fn gradient(&self, p: &Self::Param) -> Result<Self::Param, Error> {
+        let (residuals, _jacobian) = grad_psi(p, &self.L, &self.l, &self.u);
+        Ok(residuals)
+    }
 
     /// Compute the Hessian at parameter `p`.
-    fn jacobian(&self, _param: &Self::Param) -> Result<Self::Jacobian, Error> {
-        Ok(self.jacobian.clone().unwrap())
+    fn jacobian(&self, param: &Self::Param) -> Result<Self::Jacobian, Error> {
+        let (_residuals, jacobian) = grad_psi(param, &self.L, &self.l, &self.u);
+        let matrix_norm = jacobian.mapv(|x| x * x).sum().sqrt();
+        let eye = Array2::<f64>::eye(jacobian.shape()[0]);
+        // Trying to ensure that J.dot(J.T) is non-singular
+        let stable_jac: Array2<f64> = jacobian + (eye * (matrix_norm * 1e-12));
+        Ok(stable_jac)
     }
 }
-
-/*
-impl<'a> LeastSquaresProblem<f64, Dynamic, Dynamic> for TiltingProblem {
-    type ParameterStorage = VecStorage<f64, Dynamic, U1>;
-    type JacobianStorage = Owned<f64, Dynamic, Dynamic>;
-    type ResidualStorage = VecStorage<f64, Dynamic, U1>;
-
-    fn set_params(&mut self, x: &DVector<f64>) {
-        self.x = x.clone();
-        let x = Array1::from_vec(x.data.as_vec().clone());
-        let (residuals, jacobian) = grad_psi(&x, &self.L, &self.l, &self.u);
-        let jac_shape = jacobian.shape();
-        self.residuals = Some(DVector::from_vec(residuals.to_vec()));
-        self.jacobian = Some(DMatrix::from_vec(
-            jac_shape[0],
-            jac_shape[1],
-            jacobian.into_raw_vec(),
-        ));
-    }
-
-    fn params(&self) -> DVector<f64> {
-        self.x.clone()
-    }
-
-    fn residuals(&self) -> Option<Matrix<f64, Dynamic, U1, Self::ResidualStorage>> {
-        self.residuals.clone()
-    }
-
-    fn jacobian(&self) -> Option<Matrix<f64, Dynamic, Dynamic, Self::JacobianStorage>> {
-        self.jacobian.clone()
-    }
-}
-*/
 
 #[derive(Debug, Clone)]
 pub struct TiltingSolution {
@@ -235,4 +193,16 @@ pub struct TiltingSolution {
     pub x: Array1<f64>,
     pub mu: Array1<f64>,
     pub permutation: Array1<usize>,
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn test_tilt() {
+        let problem = TiltingProblem::new(Array1::zeros(10), Array1::ones(10), Array2::eye(10));
+        let output = problem.solve_optimial_tilting();
+        println!("output: {:?}", output);
+    }
 }
