@@ -11,7 +11,6 @@ use crate::faddeeva::erfc;
 use crate::tilting::TiltingProblem;
 use crate::tilting::TiltingSolution;
 use crate::util;
-use levenberg_marquardt::LevenbergMarquardt;
 use ndarray::azip;
 use ndarray::Zip;
 use ndarray::{s, Axis};
@@ -338,14 +337,10 @@ pub fn mv_truncnormal_rand<R: Rng + ?Sized>(
 
     // find optimal tilting parameter via non-linear equation solver
     let problem = TiltingProblem::new(l.clone(), u.clone(), sigma);
-    //let (result, _report) = LevenbergMarquardt::new().minimize(problem);
-    problem.solve_optimial_tilting();
-    let x = Array1::zeros(10);
-    let mu = Array1::zeros(10);
-
-    //let x = result.get_x().slice(s![..d - 1]).to_owned();
+    let result = problem.solve_optimial_tilting();
     // assign saddlepoint x* and mu*
-    //let mu = result.get_x().slice(s![d - 1..(2 * (d - 1))]).to_owned();
+    let x = result.x.slice(s![..d - 1]).to_owned();
+    let mu = result.x.slice(s![d - 1..(2 * (d - 1))]).to_owned();
     let psi_star = psy(&x, &L, &l, &u, &mu); // compute psi star
     let (logp, mut Z) = mv_truncnorm_proposal(&L, &l, &u, &mu, n, max_iters, rng);
 
@@ -373,7 +368,6 @@ pub fn mv_truncnormal_rand<R: Rng + ?Sized>(
         accept_condition(&logp, &mut accepted, rng);
         i += 1;
         if i > max_iters {
-            //println!("Ran out of accept-reject rounds");
             break;
         }
     }

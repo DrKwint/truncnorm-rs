@@ -1,7 +1,5 @@
 #![allow(non_snake_case)]
 extern crate argmin;
-extern crate levenberg_marquardt;
-extern crate nalgebra;
 
 use crate::dist_util::{cholperm, ln_normal_pr};
 use argmin::prelude::ArgminOp;
@@ -9,15 +7,6 @@ use argmin::prelude::Error;
 use argmin::prelude::*;
 use argmin::solver::gaussnewton::GaussNewton;
 use argmin::solver::trustregion::{CauchyPoint, Dogleg, Steihaug, TrustRegion};
-use levenberg_marquardt::LeastSquaresProblem;
-use levenberg_marquardt::LevenbergMarquardt;
-use nalgebra::storage::Owned;
-use nalgebra::DMatrix;
-use nalgebra::DVector;
-use nalgebra::Dynamic;
-use nalgebra::Matrix;
-use nalgebra::VecStorage;
-use nalgebra::U1;
 use ndarray::{concatenate, s, Axis};
 use ndarray::{Array1, Array2};
 use num::traits::FloatConst;

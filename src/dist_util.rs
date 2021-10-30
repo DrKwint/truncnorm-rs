@@ -1,6 +1,5 @@
 use crate::gauss::erfc;
 use crate::gauss::erfcx;
-use crate::ndarray_stats::QuantileExt;
 use crate::util;
 use ndarray::array;
 use ndarray::s;
@@ -10,6 +9,7 @@ use ndarray::Array2;
 use ndarray::Axis;
 use ndarray::Slice;
 use ndarray::Zip;
+use ndarray_stats::QuantileExt;
 use num::traits::FloatConst;
 use num::Float;
 
