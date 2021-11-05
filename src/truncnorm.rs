@@ -262,7 +262,7 @@ pub fn solved_mv_truncnormal_rand<R: Rng + ?Sized>(
     n: usize,
     max_iters: usize,
     rng: &mut R,
-) -> (Array2<f64>, Array1<f64>) {
+) -> Array2<f64> {
     let d = l.len();
     let (Lfull, perm) = cholperm(&mut sigma, &mut l, &mut u);
     let D = Lfull.diag().to_owned();
@@ -315,7 +315,7 @@ pub fn solved_mv_truncnormal_rand<R: Rng + ?Sized>(
     for (i, &ord) in order.iter().enumerate() {
         rv.row_mut(i).assign(&unperm_rv.row(ord));
     }
-    (rv.reversed_axes(), logp)
+    rv.reversed_axes()
 }
 
 /// truncated multivariate normal generator
@@ -326,7 +326,7 @@ pub fn mv_truncnormal_rand<R: Rng + ?Sized>(
     n: usize,
     max_iters: usize,
     rng: &mut R,
-) -> (Array2<f64>, Array1<f64>) {
+) -> Array2<f64> {
     let d = l.len();
     let (Lfull, perm) = cholperm(&mut sigma, &mut l, &mut u);
     let D = Lfull.diag().to_owned();
@@ -382,7 +382,7 @@ pub fn mv_truncnormal_rand<R: Rng + ?Sized>(
     for (i, &ord) in order.iter().enumerate() {
         rv.row_mut(i).assign(&unperm_rv.row(ord));
     }
-    (rv.reversed_axes(), logp)
+    rv.reversed_axes()
 }
 
 pub fn solved_mv_truncnormal_cdf<R: Rng + ?Sized>(

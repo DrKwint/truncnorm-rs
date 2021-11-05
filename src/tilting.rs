@@ -6,7 +6,6 @@ use argmin::prelude::ArgminOp;
 use argmin::prelude::Error;
 use argmin::prelude::*;
 use argmin::solver::gaussnewton::GaussNewton;
-use argmin::solver::trustregion::{CauchyPoint, Dogleg, Steihaug, TrustRegion};
 use ndarray::{concatenate, s, Axis};
 use ndarray::{Array1, Array2};
 use num::traits::FloatConst;
@@ -153,7 +152,7 @@ impl ArgminOp for TiltingProblem {
 
     /// Apply the cost function to a parameter `p`
     fn apply(&self, p: &Self::Param) -> Result<Self::Output, Error> {
-        let (residuals, jacobian) = grad_psi(p, &self.L, &self.l, &self.u);
+        let (residuals, _jacobian) = grad_psi(p, &self.L, &self.l, &self.u);
         Ok(residuals) //.mapv(|x| x * x).sum())
     }
 
