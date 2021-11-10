@@ -300,7 +300,7 @@ pub fn solved_mv_truncnormal_rand<R: Rng + ?Sized>(
         accept_condition(&logp, &mut accepted, rng);
         i += 1;
         if i > max_iters {
-            //println!("Ran out of accept-reject rounds");
+            // Ran out of accept-reject rounds
             break;
         }
     }
@@ -479,7 +479,6 @@ mod tests {
         let n = 10;
         let max_iters = 10;
         let samples = mv_truncnormal_rand(l, u, sigma, n, max_iters, &mut rng);
-        println!("samples: {:?}", samples);
     }
 
     #[bench]
