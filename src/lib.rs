@@ -17,13 +17,13 @@
 //!
 //! Cheers!  
 //! Eleanor Quint
+#[cfg(feature = "openblas-system")]
+extern crate blas_src;
 extern crate ndarray;
 extern crate ndarray_linalg;
 extern crate ndarray_rand;
 extern crate ndarray_stats;
 extern crate statrs;
-#[cfg(feature="openblas-system")]
-extern crate blas_src;
 
 mod dist_util;
 pub mod distributions;

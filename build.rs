@@ -3,17 +3,27 @@ extern crate cc;
 
 use std::env;
 use std::path::PathBuf;
+use std::process::Command;
+use std::str;
 
 fn main() {
     // Tell cargo to invalidate the built crate whenever the wrapper changes
     println!("cargo:rerun-if-changed=src/external/bindings.h");
 
+    // For Crane
+    match env::var("LMOD_CMD") {
+        Ok(lmod_cmd) => {
+            let mut ld_path = env::var("LD_LIBRARY_PATH").expect("???");
+            ld_path.push_str(":/util/comp/clang/13/lib");
+            env::set_var("LD_LIBRARY_PATH", ld_path);
+        }
+        _ => {}
+    }
+
     // The bindgen::Builder is the main entry point
     // to bindgen, and lets you build up options for
     // the resulting bindings.
     let bindings = bindgen::Builder::default()
-        // The input header we would like to generate
-        // bindings for.
         .header("src/external/bindings.h")
         // Tell cargo to invalidate the built crate whenever any of the
         // included header files changed.
@@ -32,4 +42,5 @@ fn main() {
     cc::Build::new()
         .file("src/external/faddeeva/Faddeeva.c")
         .compile("faddeeva");
+
 }
