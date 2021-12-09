@@ -22,24 +22,23 @@ openblas-system = ["ndarray/blas", "blas-src", "openblas-src", "ndarray-linalg/o
 [dependencies]
 argmin = { version = "^0.4.7", features = ["ndarrayl"] }
 blas-src = { version = "0.8", features = ["openblas"], optional = true }
-ndarray = "^0.15.2"
-ndarray-linalg = "^0.14.0"
+ndarray = "^0.15.4"
+ndarray-linalg = "^0.14.1"
 ndarray-rand = "^0.14.0"
 ndarray-stats = "^0.5.0"
 num = "^0.4.0"
-openblas-src = { version = "0.10", features = ["cblas", "system"], optional = true }
-rand = "^0.8.3"
+openblas-src = { version = "0.10.4", features = ["cblas", "system"], optional = true }
+rand = "^0.8.4"
 statrs = "^0.15.0"
 
 [dev-dependencies]
-ndarray-rand = "^0.14.0"
 proptest = "1.0.0"
 proptest-derive = "0.2.0"
 criterion = "0.3"
 
 [build-dependencies]
-bindgen = "^0.58.1"
-cc = "^1.0.68"
+bindgen = "^0.59.2"
+cc = "^1.0.72"
 
 # Math rendering on docs.rs
 [package.metadata.docs.rs]
