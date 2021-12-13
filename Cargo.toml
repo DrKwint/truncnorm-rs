@@ -30,6 +30,7 @@ num = "^0.4.0"
 openblas-src = { version = "0.10.4", features = ["cblas", "system"], optional = true }
 rand = "^0.8.4"
 statrs = "^0.15.0"
+serde = "^1.0.131"
 
 [dev-dependencies]
 proptest = "1.0.0"

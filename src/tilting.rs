@@ -9,6 +9,7 @@ use argmin::solver::gaussnewton::GaussNewton;
 use ndarray::{concatenate, s, Axis};
 use ndarray::{Array1, Array2};
 use num::traits::FloatConst;
+use serde::{Deserialize, Serialize};
 
 fn grad_psi(
     y: &Array1<f64>,
@@ -173,7 +174,7 @@ impl ArgminOp for TiltingProblem {
     }
 }
 
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct TiltingSolution {
     pub lower_tri: Array2<f64>,
     pub lower: Array1<f64>,

@@ -11,12 +11,13 @@ use ndarray::Dimension;
 use ndarray::{Ix1, Ix2};
 use rand::prelude::Distribution;
 use rand::Rng;
+use serde::{Deserialize, Serialize};
 
 /// Multivariate normal distribution with diagonal covariance
 pub type MultivariateTruncatedNormalDiag = MultivariateTruncatedNormal<Ix1>;
 
 /// Truncated multivariate normal distribution with full covariance
-#[derive(Clone, Debug)]
+#[derive(Clone, Debug, Serialize, Deserialize)]
 pub struct MultivariateTruncatedNormal<D: Dimension> {
     loc: Array1<f64>,
     scale: Array<f64, D>,

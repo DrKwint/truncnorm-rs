@@ -42,5 +42,4 @@ fn main() {
     cc::Build::new()
         .file("src/external/faddeeva/Faddeeva.c")
         .compile("faddeeva");
-
 }
