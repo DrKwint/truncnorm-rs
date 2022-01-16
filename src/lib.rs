@@ -1,9 +1,7 @@
 #![warn(clippy::all, clippy::pedantic, clippy::nursery, clippy::cargo)]
-#![feature(test)]
-#![feature(destructuring_assignment)]
 #![allow(non_snake_case)]
-//! `truncnorm` provides (potentially) high-dimensional multivariate Normal
-//! and TruncatedNormal distributions as well as low level binding to Gaussian
+//! `truncnorm` provides fast, high-dimensional multivariate Normal
+//! and `TruncatedNormal` distributions as well as low level binding to Gaussian
 //! error functions.
 //!
 //! I've written all this code for my dissertation work. I've put

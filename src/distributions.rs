@@ -46,7 +46,7 @@ impl MultivariateTruncatedNormal<Ix2> {
         }
     }
 
-    pub fn try_get_tilting_solution(&self) -> Option<&TiltingSolution> {
+    pub const fn try_get_tilting_solution(&self) -> Option<&TiltingSolution> {
         self.tilting_solution.as_ref()
     }
 

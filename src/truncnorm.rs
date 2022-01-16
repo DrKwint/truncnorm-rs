@@ -45,11 +45,11 @@ fn ntail<R: Rng + ?Sized>(
             if s * s * x < c {
             *acc = true;
             }
-        })
+        });
     };
     let mut proposal_sampler = |rng: &mut R| {
         let sample = Array1::random_using(l.len(), Uniform::new(0., 1.), rng);
-        &c - (1. + sample * &f).mapv(|x| x.ln())
+        &c - (1. + sample * &f).mapv(f64::ln)
     };
     let mut output_array =
         util::rejection_sample(&mut accept_condition, &mut proposal_sampler, max_iters, rng);
@@ -69,7 +69,7 @@ fn trnd<R: Rng + ?Sized>(
             if x > l && x < u {
             *acc = true;
             }
-        })
+        });
     };
     let mut proposal_sampler = |rng: &mut R| Array1::random_using(l.len(), StandardNormal, rng);
     util::rejection_sample(&mut accept_condition, &mut proposal_sampler, max_iters, rng)
@@ -142,7 +142,7 @@ pub fn trandn<R: Rng + ?Sized>(
     });
     let acc_rej_sample = ntail(&tl, &tu, max_iters, rng);
     let trunc_norm_sample = tn(l, u, max_iters, rng);
-    &coeff * acc_rej_sample + (1. - &coeff.mapv(|x: f64| x.abs())) * trunc_norm_sample
+    &coeff * acc_rej_sample + (1. - &coeff.mapv(f64::abs)) * trunc_norm_sample
 }
 
 fn psy(
@@ -205,7 +205,7 @@ fn mv_normal_pr<R: Rng + ?Sized>(
     tl = l[d - 1] - &col;
     tu = u[d - 1] - col;
     p = p + ln_normal_pr(&tl, &tu);
-    p.mapv_inplace(|x: f64| x.exp());
+    p.mapv_inplace(f64::exp);
     let prob = p.mean().unwrap();
     debug_assert!(
         !prob.is_sign_negative(),
@@ -282,7 +282,7 @@ pub fn solved_mv_truncnormal_rand<R: Rng + ?Sized>(
             if -1. * s.ln() > (psi_star - logp) {
             *acc = true;
             }
-        })
+        });
     };
     let mut accepted: Array1<bool> = Array1::from_elem(Z.ncols(), false);
     accept_condition(&logp, &mut accepted, rng);
@@ -350,7 +350,7 @@ pub fn mv_truncnormal_rand<R: Rng + ?Sized>(
             if -1. * s.ln() > (psi_star - logp) {
             *acc = true;
             }
-        })
+        });
     };
     let mut accepted: Array1<bool> = Array1::from_elem(Z.ncols(), false);
     accept_condition(&logp, &mut accepted, rng);

@@ -108,6 +108,7 @@ impl TiltingProblem {
         self.x = Array1::from_vec(vec); //DVector::from_vec(vec);
     }
 
+    /// # Panics
     pub fn solve_optimial_tilting(self) -> TiltingSolution {
         let solver = GaussNewton::new();
         //println!("Init: {:?}", self.x);
