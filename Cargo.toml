@@ -1,6 +1,6 @@
 [package]
 name = "truncnorm"
-version = "0.4.3"
+version = "0.5.0"
 authors = ["Eleanor Quint <eleanorquint1@gmail.com>"]
 edition = "2021"
 description   = "Normal and Truncated Normal distributions"
@@ -15,7 +15,6 @@ exclude = [
 ]
 
 [features]
-rayon = ["ndarray/rayon"]
 intel-mkl = ["ndarray-linalg/intel-mkl"]
 openblas-system = ["ndarray/blas", "blas-src", "openblas-src", "ndarray-linalg/openblas-system"]
 
