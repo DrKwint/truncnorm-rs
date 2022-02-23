@@ -269,7 +269,7 @@ pub fn solved_mv_truncnormal_rand<R: Rng + ?Sized>(
 
     u /= &D;
     l /= &D;
-    let L = (&Lfull / &(Array2::<f64>::zeros([D.len(), D.len()]) + &D).t()) - Array2::<f64>::eye(d);
+    let L = (&Lfull / &(Array2::<f64>::zeros([D.len(), D.len()]) + &D)) - Array2::<f64>::eye(d);
 
     let x = &tilting_solution.x;
     let mu = &tilting_solution.mu;
@@ -333,7 +333,7 @@ pub fn mv_truncnormal_rand<R: Rng + ?Sized>(
 
     u /= &D;
     l /= &D;
-    let L = (&Lfull / &(Array2::<f64>::zeros([D.len(), D.len()]) + &D).t()) - Array2::<f64>::eye(d);
+    let L = (&Lfull / &(Array2::<f64>::zeros([D.len(), D.len()]) + &D)) - Array2::<f64>::eye(d);
 
     // find optimal tilting parameter via non-linear equation solver
     let problem = TiltingProblem::new(l.clone(), u.clone(), sigma);

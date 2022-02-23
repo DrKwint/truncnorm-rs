@@ -84,7 +84,7 @@ impl TiltingProblem {
         let D = L.diag().to_owned();
         u /= &D;
         l /= &D;
-        L = (L / (Array2::<f64>::zeros([D.len(), D.len()]) + &D).t()) - Array2::<f64>::eye(d);
+        L = (L / (Array2::<f64>::zeros([D.len(), D.len()]) + &D)) - Array2::<f64>::eye(d);
         Self {
             d,
             perm,
@@ -111,14 +111,9 @@ impl TiltingProblem {
     /// # Panics
     pub fn solve_optimial_tilting(self) -> TiltingSolution {
         let solver = GaussNewton::new();
-        //println!("Init: {:?}", self.x);
         let result = Executor::new(self.clone(), solver, self.x.clone())
-            //.add_observer(ArgminSlogLogger::term(), ObserverMode::Always)
             .max_iters(10)
             .run();
-        //if result.is_err() {
-        //    println!("TILTING RESULT ERR: {:?}", result.as_ref().err());
-        //}
         let best_param = if result.is_ok() {
             result.ok().unwrap().state().get_best_param()
         } else {
