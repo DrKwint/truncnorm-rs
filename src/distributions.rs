@@ -51,22 +51,18 @@ impl MultivariateTruncatedNormal<Ix2> {
         self.tilting_solution.as_ref()
     }
 
-    /// # Panics
     pub fn get_tilting_solution(
         &mut self,
         old_solution: Option<&TiltingSolution>,
     ) -> &TiltingSolution {
-        if self.tilting_solution.is_none() {
-            self.tilting_solution = {
-                let mut problem =
-                    TiltingProblem::new(self.lbs.clone(), self.ubs.clone(), self.scale.clone());
-                if let Some(old_soln) = old_solution {
-                    problem.with_initialization(&old_soln.x, &old_soln.mu);
-                }
-                Some(problem.solve_optimial_tilting())
-            };
-        }
-        self.tilting_solution.as_ref().unwrap()
+        self.tilting_solution.get_or_insert_with(|| {
+            let mut problem =
+                TiltingProblem::new(self.lbs.clone(), self.ubs.clone(), self.scale.clone());
+            if let Some(old_soln) = old_solution {
+                problem.with_initialization(&old_soln.x, &old_soln.mu);
+            }
+            problem.solve_optimial_tilting()
+        })
     }
 
     pub fn cdf<R: Rng + ?Sized>(&mut self, n: usize, rng: &mut R) -> (f64, f64, f64) {
