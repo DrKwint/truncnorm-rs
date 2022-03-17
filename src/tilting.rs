@@ -77,6 +77,7 @@ pub struct TiltingProblem {
 }
 
 impl TiltingProblem {
+    #[must_use]
     pub fn new(mut l: Array1<f64>, mut u: Array1<f64>, mut sigma: Array2<f64>) -> Self {
         // Calculate L, l, u
         let d = l.shape()[0];
@@ -95,6 +96,7 @@ impl TiltingProblem {
         }
     }
 
+    #[must_use]
     pub fn get_x(&self) -> Array1<f64> {
         self.x.clone() //Array1::from_vec(self.x.data.as_vec().clone())
     }
@@ -109,6 +111,7 @@ impl TiltingProblem {
     }
 
     /// # Panics
+    #[must_use]
     pub fn solve_optimial_tilting(self) -> TiltingSolution {
         let solver = GaussNewton::new();
         let result = Executor::new(self.clone(), solver, self.x.clone())

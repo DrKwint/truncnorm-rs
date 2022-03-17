@@ -29,7 +29,7 @@ pub struct MultivariateTruncatedNormal<D: Dimension> {
 
 impl MultivariateTruncatedNormal<Ix2> {
     #[must_use]
-    pub fn new(
+    pub const fn new(
         loc: Array1<f64>,
         scale: Array2<f64>,
         lbs: Array1<f64>,
@@ -46,6 +46,7 @@ impl MultivariateTruncatedNormal<Ix2> {
         }
     }
 
+    #[must_use]
     pub const fn try_get_tilting_solution(&self) -> Option<&TiltingSolution> {
         self.tilting_solution.as_ref()
     }

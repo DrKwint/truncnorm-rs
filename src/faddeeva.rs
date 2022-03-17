@@ -6,6 +6,7 @@
 include!(concat!(env!("OUT_DIR"), "/bindings.rs"));
 
 /// the error function $\mathrm{erf}(z)$
+#[must_use]
 pub fn erf(x: f64) -> f64 {
     unsafe { Faddeeva_erf_re(x) }
 }
