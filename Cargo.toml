@@ -1,35 +1,40 @@
 [package]
 name = "truncnorm"
-version = "0.5.0"
+version = "0.5.1"
 authors = ["Eleanor Quint <eleanorquint1@gmail.com>"]
 edition = "2021"
-description   = "Normal and Truncated Normal distributions"
-readme        = "README.md"
-repository    = "https://github.com/drkwint/truncnorm-rs"
-license       = "MIT"
-keywords      = ["ndarray", "statistics", "mathematics", "random", "probability"]
-categories    = ["algorithms", "simulation", "science"]
-exclude = [
-    ".github",
-    "src/profile_main.rs"
-]
+description = "Normal and Truncated Normal distributions"
+readme = "README.md"
+repository = "https://github.com/drkwint/truncnorm-rs"
+license = "MIT"
+keywords = ["ndarray", "statistics", "mathematics", "random", "probability"]
+categories = ["algorithms", "simulation", "science"]
+exclude = [".github", "src/profile_main.rs"]
 
 [features]
 intel-mkl = ["ndarray-linalg/intel-mkl"]
-openblas-system = ["ndarray/blas", "blas-src", "openblas-src", "ndarray-linalg/openblas-system"]
+openblas-system = [
+    "ndarray/blas",
+    "blas-src",
+    "openblas-src",
+    "ndarray-linalg/openblas-system",
+]
 
 [dependencies]
-argmin = { version = "^0.4.7", features = ["ndarrayl"] }
-blas-src = { version = "0.8", features = ["openblas"], optional = true }
+argmin = { version = "^0.5.1", features = ["ndarrayl"] }
+blas-src = { version = "^0.8.0", features = ["openblas"], optional = true }
 ndarray = "^0.15.4"
 ndarray-linalg = "^0.14.1"
 ndarray-rand = "^0.14.0"
 ndarray-stats = "^0.5.0"
 num = "^0.4.0"
-openblas-src = { version = "0.10.4", features = ["cblas", "system"], optional = true }
-rand = "^0.8.4"
+openblas-src = { version = "0.10.4", features = [
+    "cblas",
+    "system",
+], optional = true }
+rand = "^0.8.5"
 statrs = "^0.15.0"
-serde = "^1.0.131"
+serde = "^1.0.136"
 
 [dev-dependencies]
 proptest = "1.0.0"
@@ -38,7 +43,7 @@ criterion = "0.3"
 
 [build-dependencies]
 bindgen = "^0.59.2"
-cc = "^1.0.72"
+cc = "^1.0.73"
 
 # Math rendering on docs.rs
 [package.metadata.docs.rs]
