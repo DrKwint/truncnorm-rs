@@ -11,7 +11,6 @@ use ndarray::Slice;
 use ndarray::Zip;
 use ndarray_stats::QuantileExt;
 use num::traits::FloatConst;
-use num::Float;
 
 pub fn cholperm(
     sigma: &mut Array2<f64>,
@@ -73,39 +72,25 @@ pub fn cholperm(
     (L, perm.mapv(|x| x as usize))
 }
 
-fn ln_phi<T: Float + FloatConst>(x: T) -> T
-where
-    f64: std::convert::From<T>,
-    T: std::convert::From<f64>,
-{
+fn ln_phi(x: f64) -> f64 {
     //! computes logarithm of tail of $Z\sim N(0,1)$ mitigating numerical roundoff errors
-    let neg_half: T = num::NumCast::from(-0.5).unwrap();
-    neg_half * x * x - T::LN_2() + erfcx(x * T::FRAC_1_SQRT_2()).ln()
+    -0.5 * x * x - f64::LN_2() + erfcx(x * f64::FRAC_1_SQRT_2()).ln()
 }
 
-pub fn ln_normal_pr<D: ndarray::Dimension, T: Float>(
-    a: &Array<T, D>,
-    b: &Array<T, D>,
-) -> Array<T, D>
-where
-    f64: std::convert::From<T>,
-    T: std::convert::From<f64> + num::traits::FloatConst,
-{
+pub fn ln_normal_pr<D: ndarray::Dimension>(a: &Array<f64, D>, b: &Array<f64, D>) -> Array<f64, D> {
     //! computes $\ln(\Pr(a<Z<b))$ where $Z\sim N(0,1)$ very accurately for any $a,b$
-    let neg_one = T::neg(T::one());
-    let two = T::one() + T::one();
     Zip::from(a).and(b).map_collect(|&a, &b| {
-        if a > T::zero() {
+        if a > 0. {
             let pa = ln_phi(a);
             let pb = ln_phi(b);
-            pa + (neg_one * (pb - pa).exp()).ln_1p()
-        } else if b < T::zero() {
+            pa + (-1. * (pb - pa).exp()).ln_1p()
+        } else if b < 0. {
             let pa = ln_phi(-a);
             let pb = ln_phi(-b);
-            pb + (neg_one * (pa - pb).exp()).ln_1p()
+            pb + (-1. * (pa - pb).exp()).ln_1p()
         } else {
-            let pa = erfc(neg_one * a * T::FRAC_1_SQRT_2()) / two;
-            let pb = erfc(b * T::FRAC_1_SQRT_2()) / two;
+            let pa = erfc(-1. * a * f64::FRAC_1_SQRT_2()) / 2.;
+            let pb = erfc(b * f64::FRAC_1_SQRT_2()) / 2.;
             (-pa - pb).ln_1p()
         }
     })

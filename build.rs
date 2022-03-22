@@ -9,7 +9,7 @@ fn main() {
     println!("cargo:rerun-if-changed=src/external/bindings.h");
 
     // For Crane
-    if let Ok(_) = env::var("LMOD_CMD") {
+    if env::var("LMOD_CMD").is_ok() {
         let mut ld_path = env::var("LD_LIBRARY_PATH").expect("???");
         ld_path.push_str(":/util/comp/clang/13/lib");
         env::set_var("LD_LIBRARY_PATH", ld_path);

@@ -110,17 +110,15 @@ impl TiltingProblem {
         self.x = Array1::from_vec(vec); //DVector::from_vec(vec);
     }
 
-    /// # Panics
     #[must_use]
     pub fn solve_optimial_tilting(self) -> TiltingSolution {
         let solver = GaussNewton::new();
         let result = Executor::new(self.clone(), solver, self.x.clone())
             .max_iters(10)
             .run();
-        let best_param = if result.is_ok() {
-            result.ok().unwrap().state().get_best_param()
-        } else {
-            self.x
+        let best_param = match result {
+            Ok(param) => param.state().get_best_param(),
+            Err(_) => self.x,
         };
         let x = best_param.slice(s![..self.d - 1]).to_owned();
         // assign saddlepoint x* and mu*
